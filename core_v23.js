@@ -279,7 +279,7 @@
     var rd = openEntry(z, sheetName).getReader();
     var td = new TextDecoder('utf-8');
     var s = { buf:'', hdr:null, idx:null, rows:0, dates:{}, riders:{}, order:[], grid:{},
-              skip:{ nofault:0, fault:0, undeliv:0, other:0 } };
+              skip:{ nofault:0, fault:0, undeliv:0, other:0 }, exclRows:[] };
     function handleRow(xml){
       var cells = parseRow(xml, shared);
       if(!s.hdr){
@@ -297,6 +297,7 @@
           onTime:  findCol(hdr,['是否准时单（考核）','是否准时单(考核)']),
           comp:    findCol(hdr,['复合超时时长（秒）','复合超时时长']),
           expectT: findCol(hdr,['平台期望时间']),
+          cancelT: findCol(hdr,['运单取消时间']),
           deliverT: findCol(hdr,['骑手送达时间']),
           finishT:  findCol(hdr,['运单完成时间']),
           status:  findCol(hdr,['运单状态']),
@@ -329,23 +330,31 @@
       if(s.idx.overDur>=0) overS = durToSec(cells[s.idx.overDur]);
       else if(s.idx.overSec>=0) overS = parseFloat(cells[s.idx.overSec]);
       // —— 口径：剔除「取消单 / 未妥投单」，不计入单量 ——
-      var kept = true;
+      var kept = true, kind = '';
       if(s.idx.status>=0){                        // 新格式：运单状态
         if(String(cells[s.idx.status]||'').trim() !== '配送成功'){
           kept = false;
           var rsp = s.idx.resp>=0 ? String(cells[s.idx.resp]||'').trim() : '';
-          if(rsp==='用户责' || rsp==='商户责') s.skip.nofault++;      // 无责取消
-          else if(rsp.indexOf('物流责')>=0)    s.skip.fault++;        // 物流责取消
-          else                                  s.skip.undeliv++;     // 在途未送达
+          if(rsp==='用户责' || rsp==='商户责'){ s.skip.nofault++; kind='nofault'; }  // 无责取消
+          else if(rsp.indexOf('物流责')>=0){   s.skip.fault++;   kind='fault'; }    // 物流责取消
+          else {                               s.skip.undeliv++; kind='undeliv'; } // 在途未送达
         }
       }else if(s.idx.toudou>=0){                  // 旧格式：是否妥投单
         if(!truthy(cells[s.idx.toudou])){
           kept = false;
-          if(s.idx.cancelFault>=0 && truthy(cells[s.idx.cancelFault])) s.skip.fault++;
-          else s.skip.other++;   // 旧格式只知道「未妥投」，非物流责的其他原因
+          if(s.idx.cancelFault>=0 && truthy(cells[s.idx.cancelFault])){ s.skip.fault++; kind='fault'; }
+          else { s.skip.other++; kind='other'; }   // 旧格式只知道「未妥投」，非物流责的其他原因
         }
       }
-      if(!kept) return;
+      if(!kept){
+        s.exclRows.push([ (s.idx.st>=0? (cells[s.idx.st]||'未知站点'):'未知站点'),
+                          (s.idx.name>=0? (cells[s.idx.name]||'未知'):'未知'),
+                          String(cells[s.idx.rid]||''), kind,
+                          (s.idx.cancelT>=0? dateOf(cells[s.idx.cancelT]):'') ||
+                          dateOf(cells[s.idx.deliverT]) || dateOf(cells[s.idx.expectT]) ||
+                          (s.idx.date>=0? normDate(cells[s.idx.date]):'') ]);
+        return;
+      }
       // —— 日期：优先独立「日期」列；否则取「运单终态日」= 骑手送达时间 → 运单完成时间 → 平台期望时间 ——
       var dv = s.idx.date>=0 ? cells[s.idx.date] : '';
       if(dv==null || dv==='') dv = dateOf(cells[s.idx.deliverT]);
@@ -417,6 +426,7 @@
     })});
     return {
       dates: dstr, last: dstr[dstr.length-1], riders: s.order, grid: grid,
+      excl: buildExcl(s.exclRows),
       flags: [{key:'f1',label:'是否二呼单'},{key:'f2',label:'是否出餐慢报备'}],
       avail: { f1: s.idx.f1>=0, f2: (s.idx.f2>=0 || s.idx.report>=0) },
       fmt: s.fmt,
@@ -773,6 +783,42 @@
     var el = $('#upStatus'); if(!el) return;
     el.innerHTML = msg; el.style.color = isErr ? '#dc2626' : '#475467';
   }
+  /* 由剔除行构建与内置数据同构的明细结构 */
+  function buildExcl(rows){
+    var EK = ['nofault','other','fault','undeliv'];
+    var bySt = {}, byRd = {}, byDt = {}, stT = {}, rdT = {};
+    function blank(){ return {nofault:0,other:0,fault:0,undeliv:0} }
+    rows.forEach(function(r){
+      var st = r[0], nm = r[1], rid = r[2], k = r[3], dt = r[4] || '';
+      if(EK.indexOf(k) < 0) return;
+      var o = bySt[st] || (bySt[st] = blank()); o[k]++;
+      stT[st] = (stT[st]||0) + 1;
+      var rk = nm + '\u0001' + st + '\u0001' + rid;
+      var o2 = byRd[rk] || (byRd[rk] = blank()); o2[k]++;
+      rdT[rk] = (rdT[rk]||0) + 1;
+      if(/^\d{4}-\d{2}-\d{2}$/.test(dt)){
+        var o3 = byDt[dt] || (byDt[dt] = blank()); o3[k]++;
+      }
+    });
+    function arr(map, keyFn, totals){
+      return Object.keys(map).sort(function(a,b){ return totals[b]-totals[a] })
+        .map(function(kk){ return keyFn(kk, map[kk]).concat([totals[kk]]); });
+    }
+    var st_arr = arr(bySt, function(n, v){ return [n, v.nofault, v.other, v.fault, v.undeliv] }, stT);
+    var rd_arr = arr(byRd, function(kk, v){
+      var p = kk.split('\u0001');
+      return [p[0], p[1], p[2], v.nofault, v.other, v.fault, v.undeliv];
+    }, rdT);
+    var top = {};
+    EK.forEach(function(k){
+      top[k] = st_arr.filter(function(r){ return r[EK.indexOf(k)+1] > 0 })
+        .map(function(r){ return [r[EK.indexOf(k)+1], r[0]] })
+        .sort(function(a,b){ return b[0]-a[0] }).slice(0,5);
+    });
+    return { byDate: byDt, st: st_arr, rd: rd_arr, top: top,
+             total: rows.length, dates: Object.keys(byDt).sort() };
+  }
+
   function dataSummary(){
     var ex = D.meta.excl, exTxt = '';
     if(ex){
@@ -1040,19 +1086,117 @@
   }
 
   /* ================= 初始化 ================= */
-  window.__build = 'v23';   // 版本标记（便于排查缓存）
+  window.__build = 'v24';   // 版本标记（便于排查缓存）
+  /* ================= 剔除明细 ================= */
+  var EKIND = [
+    { k:'nofault', lab:'无责取消', s:'无责', col:'#0ea5e9', hint:'用户/商户原因取消，不计物流责任' },
+    { k:'other',   lab:'其他未妥投', s:'其他', col:'#94a3b8', hint:'旧格式未标记取消原因的未妥投单' },
+    { k:'fault',   lab:'物流责取消', s:'物流责', col:'#f59e0b', hint:'判定为物流责任的取消单' },
+    { k:'undeliv', lab:'在途未送达', s:'在途', col:'#f43f5e', hint:'导出时刻仍在配送中，尚未送达' }
+  ];
+  var EK = EKIND.map(function(x){ return x.k });
+  var exclView = 'st';
+
+  function exclTot(v){ return EK.reduce(function(a,k){ return a + (v[k]||0) }, 0); }
+
+  function renderExcl(){
+    var E = D.excl;
+    if(!E){ $('#exclSummary').innerHTML = ''; return; }
+    var tot = E.total;
+    // 顶部四类汇总
+    var sums = {}; EK.forEach(function(k){ sums[k] = (D.meta.excl && D.meta.excl[k]) || 0 });
+    $('#exclSummary').innerHTML = EKIND.map(function(x){
+      var n = sums[x.k] || 0;
+      return '<div class="ecard" style="border-left-color:'+x.col+'">'+
+        '<div class="elab">'+x.lab+'</div>'+
+        '<div class="eval" style="color:'+x.col+'">'+n+'</div>'+
+        '<div class="ehint">'+x.hint+'</div>'+
+        '<div class="ebar"><i style="width:'+(tot? n/tot*100:0)+'%;background:'+x.col+'"></i></div>'+
+        '<div class="ehint">占剔除 '+(tot? (n/tot*100).toFixed(1):'0.0')+'%</div></div>';
+    }).join('') +
+      '<div class="ecard" style="border-left-color:#334155">'+
+      '<div class="elab">合计</div><div class="eval">'+tot+'</div>'+
+      '<div class="ehint">全部不计入单量</div>'+
+      '<div class="ehint" style="margin-top:6px">占总单量 '+
+      (D.meta.total? (tot/(D.meta.total+tot)*100).toFixed(2):'0')+'%</div></div>';
+
+    renderExclTable();
+  }
+
+  function renderExclTable(){
+    var E = D.excl;
+    var html = '';
+    if(exclView === 'st'){
+      var head = ['站点','无责取消','其他未妥投','物流责取消','在途未送达','合计',''];
+      var mx = Math.max.apply(null, E.st.map(function(r){ return r[5] }));
+      html = '<table class="xtab"><thead><tr>'+
+        head.map(function(h,i){ return '<th'+(i?' class="num"':'')+'>'+h+'</th>' }).join('')+'</tr></thead><tbody>'+
+        E.st.map(function(r){
+          return '<tr><td class="sname">'+esc(r[0])+'</td>'+
+            EK.map(function(k,i){ return '<td class="num">'+(r[i+1]||'<span class="mut">–</span>')+'</td>' }).join('')+
+            '<td class="num"><b>'+r[5]+'</b></td>'+
+            '<td class="barcell"><span class="xb" style="width:'+(r[5]/mx*100)+'%"></span>'+
+            '<em>'+r[5]+'</em></td></tr>';
+        }).join('')+'</tbody></table>';
+    } else if(exclView === 'rd'){
+      html = '<table class="xtab"><thead><tr><th>骑手</th><th>站点</th>'+
+        EKIND.map(function(x){ return '<th class="num">'+x.s+'</th>' }).join('')+
+        '<th class="num">合计</th></tr></thead><tbody>'+
+        E.rd.slice(0,60).map(function(r){
+          return '<tr><td class="sname">'+esc(r[0])+'</td><td class="mut">'+esc(r[1].replace('福州',''))+'</td>'+
+            EK.map(function(k,i){ var n=r[i+3]; return '<td class="num">'+(n||'<span class="mut">–</span>')+'</td>' }).join('')+
+            '<td class="num"><b>'+r[7]+'</b></td></tr>';
+        }).join('')+'</tbody></table>';
+      if(E.rd.length > 60)
+        html += '<div class="muted" style="padding:8px 2px;font-size:12px">仅显示前 60 名（共 '+E.rd.length+' 名骑手涉及剔除单）</div>';
+    } else {
+      html = '<table class="xtab"><thead><tr><th>日期</th>'+
+        EKIND.map(function(x){ return '<th class="num">'+x.lab+'</th>' }).join('')+
+        '<th class="num">合计</th></tr></thead><tbody>'+
+        E.dates.map(function(d){
+          var v = E.byDate[d] || {}, t = exclTot(v);
+          return '<tr><td class="sname">'+d+'</td>'+
+            EK.map(function(k){ var n=v[k]||0; return '<td class="num">'+(n||'<span class="mut">–</span>')+'</td>' }).join('')+
+            '<td class="num"><b>'+t+'</b></td></tr>';
+        }).join('')+'</tbody></table>';
+    }
+    $('#exclTableWrap').innerHTML = html;
+
+    // 洞察注释
+    var top = E.top || {}, notes = [];
+    EKIND.forEach(function(x){
+      var t = top[x.k];
+      if(t && t.length && t[0][0] > 0) notes.push(x.lab+'最多：<b>'+esc(t[0][1].replace('福州',''))+'</b>（'+t[0][0]+' 单）');
+    });
+    $('#exclNote').innerHTML = '说明：'+notes.join(' · ')+
+      '<br>这些运单的超时判定恒为 0（平台对未送达单不判超时），因此<b>剔除只影响分母单量、不影响超时单数与复合时长</b>；'+
+      '不计入单量可避免单量虚高、超时率被稀释。';
+    $('#exclTag').textContent = E.total+' 单（占导出总量 '+
+      (D.meta.total+E.total ? (E.total/(D.meta.total+E.total)*100).toFixed(2) : 0)+'%）';
+  }
+
+  function bindExcl(){
+    $('#exclSeg').addEventListener('click', function(ev){
+      var b = ev.target.closest('button'); if(!b) return;
+      Array.prototype.forEach.call(this.children, function(x){ x.classList.remove('on') });
+      b.classList.add('on'); exclView = b.getAttribute('data-v'); renderExclTable();
+    });
+  }
+
   function renderAll(){
     renderFilterBar();
     LASTBYD = renderKPI();
     drawTrend(LASTBYD);
     renderStations();
     renderTable();
+    renderExcl();
     var dts = dayList();
     $('#range').textContent = '数据范围 '+D.dates[0]+' ~ '+D.last+' · 共 '+D.dates.length+' 天 · '+
       D.riders.length+' 名骑手 · 站点 '+byStation(sel,dts).length+' 个'+
       (D.meta.src ? ' · 来源 '+D.meta.src : '');
   }
   buildControls();
+  bindExcl();
   initExport();
   $('#method').innerHTML =
     '<b>指标口径</b>：① <b>超时单</b>=「超平台期望送达时长」≥ 8 分钟（480 秒）的运单；'+
