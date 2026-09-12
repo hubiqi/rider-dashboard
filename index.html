@@ -162,6 +162,18 @@ tr.rrow:active{background:#f2f6ff}
 <div class="wrap">
   <header class="hero">
     <a class="navback" href="https://hubiqi.github.io/" id="navBack">← 项目导航</a>
+    <script>
+    /* 返回「本平台」的导航页，两端互不串门：
+       GitHub Pages   → 同源根路径（hubiqi.github.io/）
+       Cloudflare Pages → hubiqi.pages.dev（不同域名，无法由路径推导，需显式指定） */
+    (function () {
+      var a = document.getElementById('navBack');
+      if (!a) return;
+      var h = location.hostname;
+      if (/\.github\.io$/i.test(h)) a.href = location.origin + '/';
+      else if (/\.pages\.dev$/i.test(h)) a.href = 'https://hubiqi.pages.dev/';
+    })();
+    </script>
     <h1>骑手超时绩效看板</h1>
     <div class="range" id="range"></div>
     <div class="badge" id="heroBadge"></div>
