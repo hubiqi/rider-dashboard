@@ -26,9 +26,10 @@ header.hero .navback:hover{opacity:1;background:rgba(255,255,255,.26)}
 header.hero .range{margin-top:6px;font-size:12.5px;opacity:.9}
 header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,255,.18);
   border:1px solid rgba(255,255,255,.35);padding:4px 10px;border-radius:20px;font-size:12px}
-.sec-title{display:flex;align-items:center;gap:8px;margin:26px 4px 12px;font-size:15px;font-weight:700}
-.sec-title .dot{width:5px;height:16px;border-radius:3px;background:linear-gradient(#2563eb,#7c3aed)}
-.sec-title small{font-weight:400;color:var(--sub);font-size:12px;margin-left:2px}
+.sec-title{display:flex;align-items:baseline;gap:8px;margin:26px 4px 12px;font-size:15px;font-weight:700;flex-wrap:nowrap}
+.sec-title .dot{flex:0 0 auto;align-self:center;width:5px;height:16px;border-radius:3px;background:linear-gradient(#2563eb,#7c3aed)}
+.sec-title small{font-weight:400;color:var(--sub);font-size:12px;margin-left:2px;
+  flex:0 999 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #exclSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
 .ecard{background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #94a3b8;border-radius:8px;padding:9px 10px}
 .ecard .elab{font-size:11.5px;color:#64748b;font-weight:600}
@@ -245,7 +246,7 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="data_v6.js?v=25"></script>
-<script src="core_v23.js?v=25"></script>
+<script src="data_v6.js?v=26"></script>
+<script src="core_v23.js?v=26"></script>
 </body>
 </html>
