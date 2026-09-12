@@ -279,7 +279,7 @@
     var rd = openEntry(z, sheetName).getReader();
     var td = new TextDecoder('utf-8');
     var s = { buf:'', hdr:null, idx:null, rows:0, dates:{}, riders:{}, order:[], grid:{},
-              skip:{ nofault:0, fault:0, undeliv:0 } };
+              skip:{ nofault:0, fault:0, undeliv:0, other:0 } };
     function handleRow(xml){
       var cells = parseRow(xml, shared);
       if(!s.hdr){
@@ -342,7 +342,7 @@
         if(!truthy(cells[s.idx.toudou])){
           kept = false;
           if(s.idx.cancelFault>=0 && truthy(cells[s.idx.cancelFault])) s.skip.fault++;
-          else s.skip.nofault++;
+          else s.skip.other++;   // 旧格式只知道「未妥投」，非物流责的其他原因
         }
       }
       if(!kept) return;
@@ -776,9 +776,13 @@
   function dataSummary(){
     var ex = D.meta.excl, exTxt = '';
     if(ex){
-      var en = (ex.nofault||0) + (ex.fault||0) + (ex.undeliv||0);
-      if(en) exTxt = ' · 已剔除 <b>'+en+'</b> 单（无责取消 '+(ex.nofault||0)+
-        ' / 物流责取消 '+(ex.fault||0)+' / 在途未送达 '+(ex.undeliv||0)+'）';
+      var parts = [];
+      if(ex.nofault) parts.push('无责取消 '+ex.nofault);
+      if(ex.other)   parts.push('其他未妥投 '+ex.other);
+      if(ex.fault)   parts.push('物流责取消 '+ex.fault);
+      if(ex.undeliv) parts.push('在途未送达 '+ex.undeliv);
+      var en = (ex.nofault||0)+(ex.other||0)+(ex.fault||0)+(ex.undeliv||0);
+      if(en) exTxt = ' · <b>已剔除 '+en+' 单</b>（'+parts.join(' / ')+'）不计入单量';
     }
     return '当前数据：'+D.meta.total+' 单 · '+D.dates.length+' 天（'+D.dates[0]+'~'+D.last+'）· '+D.riders.length+' 骑手 · '+
       '整体超时率 '+pct(D.meta.to/D.meta.total*100)+
