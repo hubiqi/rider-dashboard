@@ -1089,10 +1089,10 @@
   window.__build = 'v24';   // 版本标记（便于排查缓存）
   /* ================= 剔除明细 ================= */
   var EKIND = [
-    { k:'nofault', lab:'无责取消', s:'无责', col:'#0ea5e9', hint:'用户/商户原因取消，不计物流责任' },
-    { k:'other',   lab:'其他未妥投', s:'其他', col:'#94a3b8', hint:'旧格式未标记取消原因的未妥投单' },
-    { k:'fault',   lab:'物流责取消', s:'物流责', col:'#f59e0b', hint:'判定为物流责任的取消单' },
-    { k:'undeliv', lab:'在途未送达', s:'在途', col:'#f43f5e', hint:'导出时刻仍在配送中，尚未送达' }
+    { k:'nofault', lab:'无责取消', s:'无责', col:'#0ea5e9', hint:'用户/商户取消' },
+    { k:'other',   lab:'其他未妥投', s:'其他', col:'#94a3b8', hint:'旧格式未标原因' },
+    { k:'fault',   lab:'物流责取消', s:'物流责', col:'#f59e0b', hint:'判定物流责任' },
+    { k:'undeliv', lab:'在途未送达', s:'在途', col:'#f43f5e', hint:'导出时仍在途' }
   ];
   var EK = EKIND.map(function(x){ return x.k });
   var exclView = 'st';
@@ -1108,16 +1108,16 @@
     $('#exclSummary').innerHTML = EKIND.map(function(x){
       var n = sums[x.k] || 0;
       return '<div class="ecard" style="border-left-color:'+x.col+'">'+
-        '<div class="elab">'+x.lab+'</div>'+
+        '<div class="elab">'+x.lab+' <em>'+(tot? (n/tot*100).toFixed(0):0)+'%</em></div>'+
         '<div class="eval" style="color:'+x.col+'">'+n+'</div>'+
         '<div class="ehint">'+x.hint+'</div>'+
         '<div class="ebar"><i style="width:'+(tot? n/tot*100:0)+'%;background:'+x.col+'"></i></div>'+
-        '<div class="ehint">占剔除 '+(tot? (n/tot*100).toFixed(1):'0.0')+'%</div></div>';
+        '</div>';
     }).join('') +
       '<div class="ecard" style="border-left-color:#334155">'+
       '<div class="elab">合计</div><div class="eval">'+tot+'</div>'+
-      '<div class="ehint">全部不计入单量</div>'+
-      '<div class="ehint" style="margin-top:6px">占总单量 '+
+      '<div class="ehint">不计入单量</div>'+
+      '<div class="ehint">占总量 '+
       (D.meta.total? (tot/(D.meta.total+tot)*100).toFixed(2):'0')+'%</div></div>';
 
     renderExclTable();
