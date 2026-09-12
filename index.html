@@ -29,6 +29,23 @@ header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,
 .sec-title{display:flex;align-items:center;gap:8px;margin:26px 4px 12px;font-size:15px;font-weight:700}
 .sec-title .dot{width:5px;height:16px;border-radius:3px;background:linear-gradient(#2563eb,#7c3aed)}
 .sec-title small{font-weight:400;color:var(--sub);font-size:12px;margin-left:2px}
+#exclSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ecard{background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #94a3b8;border-radius:8px;padding:9px 10px}
+.ecard .elab{font-size:11.5px;color:#64748b;font-weight:600}
+.ecard .eval{font-size:20px;font-weight:800;line-height:1.25;color:#1e293b}
+.ecard .ehint{font-size:10.5px;color:#94a3b8;line-height:1.4}
+.ecard .ebar{height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;margin:5px 0 3px}
+.ecard .ebar i{display:block;height:100%;border-radius:2px}
+.xtab{width:100%;border-collapse:collapse;font-size:12.5px;min-width:420px}
+.xtab th{text-align:left;padding:7px 8px;border-bottom:2px solid #e2e8f0;font-size:11.5px;color:#64748b;white-space:nowrap}
+.xtab th.num,.xtab td.num{text-align:right}
+.xtab td{padding:7px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap}
+.xtab td.sname{font-weight:600;color:#1e293b}
+.xtab .mut{color:#cbd5e1}
+.xtab tbody tr:hover{background:#f8fafc}
+.xtab td.barcell{position:relative;min-width:70px}
+.xtab td.barcell .xb{position:absolute;left:8px;top:50%;transform:translateY(-50%);height:14px;background:#dbeafe;border-radius:3px;z-index:0}
+.xtab td.barcell em{position:relative;z-index:1;font-style:normal;font-size:11.5px;color:#1e40af;padding-left:3px}
 .grid{display:grid;gap:12px}
 .kpi{grid-template-columns:repeat(4,1fr)}
 @media(max-width:760px){.kpi{grid-template-columns:repeat(2,1fr)}}
@@ -208,12 +225,26 @@ tr.rrow:active{background:#f2f6ff}
   </div>
   </section>
 
+  <section class="mod" data-name="剔除明细">
+  <div class="sec-title"><span class="dot"></span>剔除明细 <small id="exclTag"></small></div>
+  <div class="card">
+    <div id="exclSummary"></div>
+    <div class="seg" id="exclSeg" style="margin-top:12px">
+      <button data-v="st" class="on">按站点</button>
+      <button data-v="rd">按骑手</button>
+      <button data-v="date">按日期</button>
+    </div>
+    <div class="scroll" id="exclTableWrap" style="margin-top:10px"></div>
+    <div class="note" id="exclNote"></div>
+  </div>
+  </section>
+
   <div class="note" id="method"></div>
 </div>
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="data_v5.js"></script>
+<script src="data_v6.js"></script>
 <script src="core_v23.js"></script>
 </body>
 </html>
