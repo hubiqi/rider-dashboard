@@ -31,7 +31,7 @@
   function aggScope(s, dts){              // 汇总
     var t=0,o=0,m=0;
     (dts||dayList()).forEach(function(di){
-      D.grid[di].forEach(function(e){
+      (D.grid[di]||[]).forEach(function(e){
         var x = cellSum(e.slice(1), s); t+=x[0]; o+=x[1]; m+=x[2];
       });
     });
@@ -40,7 +40,7 @@
   function byRider(s, dts){               // 逐骑手
     var acc = {};
     (dts||dayList()).forEach(function(di){
-      D.grid[di].forEach(function(e){
+      (D.grid[di]||[]).forEach(function(e){
         var ri = e[0], x = cellSum(e.slice(1), s);
         var a = acc[ri] || (acc[ri] = [0,0,0]);
         a[0]+=x[0]; a[1]+=x[1]; a[2]+=x[2];
@@ -54,7 +54,7 @@
   function byStation(s, dts){
     var acc = {};
     (dts||dayList()).forEach(function(di){
-      D.grid[di].forEach(function(e){
+      (D.grid[di]||[]).forEach(function(e){
         var st = D.riders[e[0]].st, x = cellSum(e.slice(1), s);
         var a = acc[st] || (acc[st] = [0,0,0]);
         a[0]+=x[0]; a[1]+=x[1]; a[2]+=x[2];
@@ -68,7 +68,7 @@
     var out = [];
     for(var i=0;i<D.grid.length;i++){
       var cell = null;
-      D.grid[i].forEach(function(e){ if(e[0]===ri) cell = e.slice(1); });
+      (D.grid[i]||[]).forEach(function(e){ if(e[0]===ri) cell = e.slice(1); });
       if(!cell) continue;
       var x = cellSum(cell, s);
       if(x[0]===0) continue;
@@ -558,7 +558,7 @@
       var lp = lastMap[st.st] || {t:0,r:0,c:0};
       var trend = dts.map(function(i){
         var t=0,o=0,m=0;
-        D.grid[i].forEach(function(e){
+        (D.grid[i]||[]).forEach(function(e){
           if(D.riders[e[0]].st!==st.st) return;
           var x = cellSum(e.slice(1), sel); t+=x[0]; o+=x[1]; m+=x[2];
         });
@@ -1194,7 +1194,7 @@
   }
 
   /* ================= 初始化 ================= */
-  window.__build = 'v29';   // 版本标记（便于排查缓存）
+  window.__build = 'v30';   // 版本标记（便于排查缓存）
   /* ================= 剔除明细 ================= */
   var EKIND = [
     { k:'nofault', lab:'无责取消', s:'无责', col:'#0ea5e9', hint:'用户/商户取消' },
