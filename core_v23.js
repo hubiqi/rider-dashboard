@@ -1086,7 +1086,7 @@
   }
 
   /* ================= 初始化 ================= */
-  window.__build = 'v27';   // 版本标记（便于排查缓存）
+  window.__build = 'v28';   // 版本标记（便于排查缓存）
   /* ================= 剔除明细 ================= */
   var EKIND = [
     { k:'nofault', lab:'无责取消', s:'无责', col:'#0ea5e9', hint:'用户/商户取消' },
@@ -1101,7 +1101,7 @@
 
   function renderExcl(){
     var E = D.excl;
-    if(!E){ $('#exclSummary').innerHTML = ''; return; }
+    if(!E || !E.total){ $('#exclSummary').innerHTML = ''; $('#exclTableWrap').innerHTML = ''; $('#exclTag').textContent = ''; return; }
     var tot = E.total;
     // 顶部四类汇总
     var sums = {}; EK.forEach(function(k){ sums[k] = (D.meta.excl && D.meta.excl[k]) || 0 });
