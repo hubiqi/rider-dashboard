@@ -811,10 +811,15 @@
     var dts = dayList();
     var T = aggScope(sel, dts);
     var stArr = byStation(sel, dts).filter(function(x){ return x.t>0 });
-    stArr.forEach(function(x){ x._sc = scoreOf(x, T) });
-    stArr.sort(function(a,b){ return a._sc-b._sc });
     var rdArr = byRider(sel, dts).filter(function(x){ return x.t>=scope.min });
-    rdArr.forEach(function(x){ x._sc = scoreOf(x, T) });
+    [stArr, rdArr].forEach(function(arr){
+      arr.forEach(function(x){
+        x._sc = scoreOf(x, T);
+        var sh = sharesOf(x, T);
+        x.s1 = sh.s1; x.s2 = sh.s2; x.s3 = sh.s3; x.s4 = sh.s4;
+      });
+    });
+    stArr.sort(function(a,b){ return a._sc-b._sc });
     rdArr.sort(function(a,b){ return b._sc-a._sc });
 
     var head = '<tr><th>名次</th><th>对象</th><th>站点</th><th class="num">单量</th>'+
