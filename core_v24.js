@@ -9,59 +9,121 @@
   var scope = { day:'__all__', st:'__all__', min:5, q:'', rank:10 };   // rank=超时率前 N%（0=全部）
   var sortKey = 'r', sortDir = -1;       // 默认按「超时率」降序（与排名筛选口径一致）
   var metric = 'rate';
+  var view = 'timeout';                  // timeout=超时视图 · quality=质量指标视图
+  var scoreMode = 'share';               // share=团队占比口径（默认，按用户公式） · rate=率值口径
 
-  /* ================= 聚合 ================= */
+  /* ================= 指标计算内核 =================
+     每组 15 个字段（渲染端约定，见 F）：
+       0 有效完单 · 1 T8超时单 · 2 复合超时秒数 · 3 接单量 · 4 完全妥投率分母附加
+       5 提前点送达 · 6 高笔T8非准时 · 7 虚假报备出餐慢取消 · 8 虚假改派吸单/规避妥投
+       9 虚假改派偷准达 · 10 有效投诉 · 11 有效差评 · 12 有效索赔 · 13 高笔单 · 14 星巴克单 */
+  var F = { t:0, o:1, comp:2, acc:3, missAdd:4, early:5, t8hi:6, fakeCan:7,
+            fakeGrab:8, fakeT8:9, cmpl:10, bad:11, claim:12, hi:13, star:14 };
+  var NF = 15;
   function matchB(b, s){
     var b1 = b>=2?1:0, b2 = b%2;
     if(s.f1!=='all' && (s.f1==='yes') !== (b1===1)) return false;
     if(s.f2!=='all' && (s.f2==='yes') !== (b2===1)) return false;
     return true;
   }
-  function cellSum(cell, s){
-    var t=0,o=0,m=0;
-    for(var b=0;b<4;b++){ if(matchB(b,s)){ t+=cell[b*3]; o+=cell[b*3+1]; m+=cell[b*3+2]; } }
-    return [t,o,m];
+  function newVec(){ var a = new Array(NF); for(var i=0;i<NF;i++) a[i]=0; return a; }
+  function cellVec(cell, s, out){
+    var stride = Math.round(cell.length/4);          // 兼容旧数据的每组 3 字段
+    out = out || newVec();
+    for(var b=0;b<4;b++){
+      if(!matchB(b,s)) continue;
+      for(var k=0;k<stride;k++) out[k] += (cell[b*stride+k] || 0);
+    }
+    return out;
   }
-  function fin(t,o,m){ return {t:t, o:o, s:m, r: t? o/t*100 : 0, c: t? m/t : 0}; }
+  function addVec(a, b){ for(var i=0;i<NF;i++) a[i] += b[i]; return a; }
+  /* 由 15 字段累加值算出四个考核指标（口径见页面底部「指标口径」） */
+  function metricsOf(v){
+    var t = v[F.t] || 0, acc = v[F.acc] || 0;
+    var missAdd = v[F.missAdd] || 0;
+    var missDen = t + missAdd;                                   // 完全妥投率分母
+    var t8hi = v[F.t8hi] || 0;
+    var t8Den = t + t8hi;                                        // T8 分母（有效完单 + 高笔非准时加权）
+    var t8Loss = (v[F.o]||0) + t8hi + (v[F.fakeCan]||0) + (v[F.fakeT8]||0) + (v[F.early]||0)*2;
+    var t8Num = t8Den - t8Loss;
+    var satW = (v[F.cmpl]||0)*5 + (v[F.bad]||0)*5 + (v[F.claim]||0) + (v[F.fakeCan]||0);
+    var comp = v[F.comp] || 0;
+    return {
+      t:t, o:v[F.o]||0, s:comp, acc:acc, c: t? comp/t : 0, r: t? (v[F.o]||0)/t*100 : 0,
+      missAdd:missAdd, missDen:missDen,
+      missR: missDen? missAdd/missDen*100 : 0,                   // 不完全妥投率 %
+      fullR: missDen? t/missDen*100 : 0,                         // 完全妥投率 %
+      t8Loss:t8Loss, t8Den:t8Den, t8Num:t8Num, t8hi:t8hi,
+      t8R: t8Den? t8Num/t8Den*100 : 0,                           // 预测T8准时率 %
+      t8Late: t8Den? t8Loss/t8Den*100 : 0,                       // T8超时率 %
+      satW:satW, satR: acc? satW/acc*100 : 0,                    // 非时效不满意度 %
+      avgComp: t? comp/t : 0,
+      cmpl:v[F.cmpl]||0, bad:v[F.bad]||0, claim:v[F.claim]||0, early:v[F.early]||0,
+      fakeCan:v[F.fakeCan]||0, fakeGrab:v[F.fakeGrab]||0, fakeT8:v[F.fakeT8]||0, hi:v[F.hi]||0,
+      _v:v
+    };
+  }
+  /* 四个指标的「团队占比」= 加权分子 ÷ 团队加权分子（加权 = 平台公式系数，见口径说明） */
+  function sharesOf(m, T){
+    return {
+      s1: T && T.missAdd ? m.missAdd/T.missAdd*100 : 0,          // 不完全妥投
+      s2: T && T.t8Loss  ? m.t8Loss/T.t8Loss*100 : 0,            // T8超时（加权含高笔/虚假/提前点送达×2）
+      s3: T && T.s       ? m.s/T.s*100 : 0,                      // 复合时长
+      s4: T && T.satW    ? m.satW/T.satW*100 : 0                 // 非时效不满意（含×5加权）
+    };
+  }
+  /* 综合评价分 = 100 - (0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比) × 100 */
+  function scoreOf(m, T){
+    var sh = sharesOf(m, T);
+    if(scoreMode === 'rate'){                                    // 备选口径：用对象自身率值（消除单量规模影响）
+      var c = T && T.avgComp ? Math.min(m.avgComp/T.avgComp, 2) : 0;
+      var sc = 100 - (0.2*m.missR/100 + 0.3*m.t8Late/100 + 0.15*c + 0.2*m.satR/100)*100;
+      return Math.max(0, Math.min(100, sc));
+    }
+    var s = 100 - (0.2*sh.s1/100 + 0.3*sh.s2/100 + 0.15*sh.s3/100 + 0.2*sh.s4/100)*100;
+    return Math.max(0, Math.min(100, s));
+  }
 
   function dayList(){                     // 当前日期范围（单日 → [di]，全周期 → all）
     if(scope.day==='__all__'){ var a=[]; for(var i=0;i<D.grid.length;i++) a.push(i); return a; }
     var di = D.dates.indexOf(scope.day); return di<0? [] : [di];
   }
-  function aggScope(s, dts){              // 汇总
-    var t=0,o=0,m=0;
+  function sumVec(s, dts){                // 汇总向量（当前范围）
+    var v = newVec();
     (dts||dayList()).forEach(function(di){
-      (D.grid[di]||[]).forEach(function(e){
-        var x = cellSum(e.slice(1), s); t+=x[0]; o+=x[1]; m+=x[2];
-      });
+      (D.grid[di]||[]).forEach(function(e){ cellVec(e.slice(1), s, v); });
     });
-    return fin(t,o,m);
+    return v;
+  }
+  function aggScope(s, dts){              // 汇总（含四指标）
+    var v = sumVec(s, dts);
+    var m = metricsOf(v); m.vec = v; return m;
   }
   function byRider(s, dts){               // 逐骑手
     var acc = {};
     (dts||dayList()).forEach(function(di){
       (D.grid[di]||[]).forEach(function(e){
-        var ri = e[0], x = cellSum(e.slice(1), s);
-        var a = acc[ri] || (acc[ri] = [0,0,0]);
-        a[0]+=x[0]; a[1]+=x[1]; a[2]+=x[2];
+        var ri = e[0];
+        var a = acc[ri] || (acc[ri] = newVec());
+        cellVec(e.slice(1), s, a);
       });
     });
     return Object.keys(acc).map(function(ri){
-      var a = acc[ri], r = D.riders[ri], f = fin(a[0],a[1],a[2]);
-      f.ri = +ri; f.n = r.n; f.st = r.st; return f;
+      var m = metricsOf(acc[ri]), r = D.riders[ri];
+      m.ri = +ri; m.n = r.n; m.st = r.st; return m;
     });
   }
   function byStation(s, dts){
     var acc = {};
     (dts||dayList()).forEach(function(di){
       (D.grid[di]||[]).forEach(function(e){
-        var st = D.riders[e[0]].st, x = cellSum(e.slice(1), s);
-        var a = acc[st] || (acc[st] = [0,0,0]);
-        a[0]+=x[0]; a[1]+=x[1]; a[2]+=x[2];
+        var st = D.riders[e[0]].st;
+        var a = acc[st] || (acc[st] = newVec());
+        cellVec(e.slice(1), s, a);
       });
     });
     return Object.keys(acc).map(function(st){
-      var a = acc[st], f = fin(a[0],a[1],a[2]); f.st = st; return f;
+      var m = metricsOf(acc[st]); m.st = st; return m;
     });
   }
   function riderDays(ri, s){              // 单个骑手的逐日序列
@@ -70,24 +132,28 @@
       var cell = null;
       (D.grid[i]||[]).forEach(function(e){ if(e[0]===ri) cell = e.slice(1); });
       if(!cell) continue;
-      var x = cellSum(cell, s);
-      if(x[0]===0) continue;
-      out.push({ dt:D.dates[i], t:x[0], o:x[1], s:x[2], r:x[1]/x[0]*100, c:x[2]/x[0] });
+      var m = metricsOf(cellVec(cell, s));
+      if(m.t===0) continue;
+      m.dt = D.dates[i];
+      out.push(m);
     }
     return out;
   }
   function stationDays(st, s){            // 单个站点的逐日序列（整个周期）
     var out = [];
     for(var i=0;i<D.grid.length;i++){
-      var t=0,o=0,m=0,rd=0;
+      var v = newVec(), rd = 0;
       (D.grid[i]||[]).forEach(function(e){
         if(D.riders[e[0]].st !== st) return;
-        var x = cellSum(e.slice(1), s);
-        if(x[0] > 0) rd++;                 // 当天有单的骑手数
-        t+=x[0]; o+=x[1]; m+=x[2];
+        var cell = e.slice(1);
+        cellVec(cell, s, v);
+        var stride = Math.round(cell.length/4), ct = 0;
+        for(var b=0;b<4;b++){ if(matchB(b,s)) ct += (cell[b*stride]||0) }
+        if(ct > 0) rd++;                   // 当天有单的骑手数
       });
-      if(!t) continue;
-      out.push({ dt:D.dates[i], t:t, o:o, s:m, r:o/t*100, c:m/t, rd:rd });
+      if(!v[F.t]) continue;
+      var m = metricsOf(v); m.dt = D.dates[i]; m.rd = rd;
+      out.push(m);
     }
     return out;
   }
@@ -96,14 +162,13 @@
     for(var i=0;i<D.grid.length;i++){
       (D.grid[i]||[]).forEach(function(e){
         if(D.riders[e[0]].st !== st) return;
-        var ri = e[0], x = cellSum(e.slice(1), s);
-        var a = acc[ri] || (acc[ri] = [0,0,0]);
-        a[0]+=x[0]; a[1]+=x[1]; a[2]+=x[2];
+        var ri = e[0], a = acc[ri] || (acc[ri] = newVec());
+        cellVec(e.slice(1), s, a);
       });
     }
     return Object.keys(acc).map(function(ri){
-      var a = acc[ri], r = D.riders[ri], f = fin(a[0],a[1],a[2]);
-      f.ri = +ri; f.n = r.n; f.st = r.st; return f;
+      var m = metricsOf(acc[ri]), r = D.riders[ri];
+      m.ri = +ri; m.n = r.n; m.st = r.st; return m;
     }).filter(function(x){ return x.t > 0 });
   }
   function extremes(days){                // 极值标注用的统计
@@ -306,6 +371,13 @@
     return v;
   }
   function truthy(v){ v=String(v).trim().toLowerCase(); return v==='是'||v==='1'||v==='true'||v==='y'; }
+  /* 有效差评判定：考核明细 =「是否差评单」；运单明细 =「用户评价等级」为吐槽/差评 */
+  function badEval(v){
+    v = String(v==null?'':v).trim();
+    if(!v) return false;
+    if(truthy(v)) return true;
+    return v.indexOf('差评')>=0 || v.indexOf('吐槽')>=0 || v.indexOf('不满意')>=0;
+  }
 
   async function parseXlsx(file, onProgress){
     var buf = await file.arrayBuffer();
@@ -356,7 +428,20 @@
           cancelFault: findCol(hdr,['是否物流责取消单']),
           report:  findCol(hdr,['异常报备项']),
           f1:   findCol(hdr,['是否二呼单']),
-          f2:   findCol(hdr,['是否出餐慢报备'])
+          f2:   findCol(hdr,['是否出餐慢报备']),
+          // —— 四指标相关列（两种格式自动识别）——
+          hi:      findCol(hdr,['是否高笔单']),
+          cmpl:    findCol(hdr,['是否投诉单','用户投诉是否成立']),
+          bad:     findCol(hdr,['是否差评单','用户评价等级']),
+          claim:   findCol(hdr,['是否索赔单','索赔是否成立']),
+          early:   findCol(hdr,['是否提前点送达不满意单','违规送达是否成立']),
+          fakeCan: findCol(hdr,['是否虚假报备出餐慢取消单']),
+          fakeRep: findCol(hdr,['虚假报备是否成立']),
+          fakeItem:findCol(hdr,['虚假报备项']),
+          fakeGrab: findCol(hdr,['是否虚假改派吸单']),
+          fakeGrab2:findCol(hdr,['是否虚假改派规避妥投单']),
+          fakeGrab3:findCol(hdr,['是否虚假改派偷准达']),
+          brand:   findCol(hdr,['平台商家名称','商家名称'])
         };
         var miss = [];
         if(s.idx.rid<0) miss.push('骑手id');
@@ -379,39 +464,14 @@
       var overS = NaN;
       if(s.idx.overDur>=0) overS = durToSec(cells[s.idx.overDur]);
       else if(s.idx.overSec>=0) overS = parseFloat(cells[s.idx.overSec]);
-      // —— 口径：剔除「取消单 / 未妥投单」，不计入单量 ——
-      var kept = true, kind = '';
-      if(s.idx.status>=0){                        // 新格式：运单状态
-        if(String(cells[s.idx.status]||'').trim() !== '配送成功'){
-          kept = false;
-          var rsp = s.idx.resp>=0 ? String(cells[s.idx.resp]||'').trim() : '';
-          if(rsp==='用户责' || rsp==='商户责'){ s.skip.nofault++; kind='nofault'; }  // 无责取消
-          else if(rsp.indexOf('物流责')>=0){   s.skip.fault++;   kind='fault'; }    // 物流责取消
-          else {                               s.skip.undeliv++; kind='undeliv'; } // 在途未送达
-        }
-      }else if(s.idx.toudou>=0){                  // 旧格式：是否妥投单
-        if(!truthy(cells[s.idx.toudou])){
-          kept = false;
-          if(s.idx.cancelFault>=0 && truthy(cells[s.idx.cancelFault])){ s.skip.fault++; kind='fault'; }
-          else { s.skip.other++; kind='other'; }   // 旧格式只知道「未妥投」，非物流责的其他原因
-        }
-      }
-      if(!kept){
-        s.exclRows.push([ (s.idx.st>=0? (cells[s.idx.st]||'未知站点'):'未知站点'),
-                          (s.idx.name>=0? (cells[s.idx.name]||'未知'):'未知'),
-                          String(cells[s.idx.rid]||''), kind,
-                          (s.idx.cancelT>=0? dateOf(cells[s.idx.cancelT]):'') ||
-                          dateOf(cells[s.idx.deliverT]) || dateOf(cells[s.idx.expectT]) ||
-                          (s.idx.date>=0? normDate(cells[s.idx.date]):'') ]);
-        return;
-      }
-      // —— 日期：优先独立「日期」列；否则取「运单终态日」= 骑手送达时间 → 运单完成时间 → 平台期望时间 ——
+      var rid = cells[s.idx.rid]; if(rid==null || rid==='') return;
+      // —— 日期：优先独立「日期」列；否则取「运单终态日」= 送达 → 完成 → 期望 → 取消 ——
       var dv = s.idx.date>=0 ? cells[s.idx.date] : '';
       if(dv==null || dv==='') dv = dateOf(cells[s.idx.deliverT]);
       if(dv==null || dv==='') dv = dateOf(cells[s.idx.finishT]);
       if(dv==null || dv==='') dv = dateOf(cells[s.idx.expectT]);
+      if(dv==null || dv==='') dv = dateOf(cells[s.idx.cancelT]);
       if(dv==null || dv==='') return;
-      var rid = cells[s.idx.rid]; if(rid==null || rid==='') return;
       var d = normDate(dv);
       if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
       var ri = s.riders[rid];
@@ -421,27 +481,81 @@
         s.order.push({ n: s.idx.name>=0 ? (cells[s.idx.name]||'未知') : ('骑手'+rid),
                        st: s.idx.st>=0 ? (cells[s.idx.st]||'未知站点') : '未知站点', rid: rid });
       }
-      // —— 标签：二呼单 / 出餐慢 ——
+      // —— 标签：二呼单 / 出餐慢（影响分组桶）——
       var f1 = s.idx.f1>=0 && truthy(cells[s.idx.f1]);
       var f2 = s.idx.f2>=0 ? truthy(cells[s.idx.f2])
                            : (s.idx.report>=0 && slowReport(cells[s.idx.report]));
       var b = (f1?2:0) + (f2?1:0);
-      var g = s.grid[d] || (s.grid[d] = {});
-      var cell = g[ri] || (g[ri] = [0,0,0,0,0,0,0,0,0,0,0,0]);
-      cell[b*3] += 1;
-      // —— 超时 & 复合时长 ——
-      var isTo, compV;
-      if(s.useDur){                             // 含时长列 → 统一 ≥480s 口径
-        var ov = isFinite(overS) ? overS : 0;   // 空值按 0 计（不视作超时）
-        isTo = ov >= 480;
-        compV = composite(ov);
-      }else{                                    // 仅考核口径的文件
-        isTo = s.idx.onTime>=0 && !truthy(cells[s.idx.onTime]);
-        compV = s.idx.comp>=0 ? (parseFloat(cells[s.idx.comp])||0) : 0;
+      // —— 四指标取值（缺失列一律按 0）——
+      var hi = s.idx.hi>=0 && truthy(cells[s.idx.hi]);
+      var star = s.idx.brand>=0 && String(cells[s.idx.brand]||'').indexOf('星巴克')>=0;
+      var early = s.idx.early>=0 && truthy(cells[s.idx.early]);
+      var cmpl = s.idx.cmpl>=0 && truthy(cells[s.idx.cmpl]);
+      var bad = s.idx.bad>=0 && badEval(cells[s.idx.bad]);
+      var claim = s.idx.claim>=0 && truthy(cells[s.idx.claim]);
+      var fakeCan = false;
+      if(s.idx.fakeCan>=0) fakeCan = truthy(cells[s.idx.fakeCan]);
+      else if(s.idx.fakeRep>=0 && truthy(cells[s.idx.fakeRep]))
+        fakeCan = s.idx.fakeItem<0 ? true : slowReport(cells[s.idx.fakeItem]);
+      var fakeGrab = (s.idx.fakeGrab>=0 && truthy(cells[s.idx.fakeGrab])) ||
+                     (s.idx.fakeGrab2>=0 && truthy(cells[s.idx.fakeGrab2]));
+      var fakeT8 = s.idx.fakeGrab3>=0 && truthy(cells[s.idx.fakeGrab3]);
+      // —— 口径：剔除「取消单 / 未妥投单」不计入单量（仍计入接单量与加权未完成）——
+      var kept = true, kind = '', fault = false;
+      if(s.idx.status>=0){                        // 新格式：运单状态
+        if(String(cells[s.idx.status]||'').trim() !== '配送成功'){
+          kept = false;
+          var rsp = s.idx.resp>=0 ? String(cells[s.idx.resp]||'').trim() : '';
+          if(rsp==='用户责' || rsp==='商户责'){ s.skip.nofault++; kind='nofault'; }  // 无责取消
+          else if(rsp.indexOf('物流责')>=0){   s.skip.fault++;   kind='fault'; fault=true; }
+          else {                               s.skip.undeliv++; kind='undeliv'; } // 在途未送达
+        }
+      }else if(s.idx.toudou>=0){                  // 旧格式：是否妥投单
+        if(!truthy(cells[s.idx.toudou])){
+          kept = false;
+          fault = s.idx.cancelFault>=0 && truthy(cells[s.idx.cancelFault]);
+          if(fault){ s.skip.fault++; kind='fault'; } else { s.skip.other++; kind='other'; }
+        }
       }
-      if(isTo) cell[b*3+1] += 1;
-      cell[b*3+2] += compV;
-      s.rows++;
+      // —— 组装本行增量 ——
+      var add = new Array(NF); for(var z=0;z<NF;z++) add[z]=0;
+      add[F.acc] = 1;                             // 接单量（含未妥投）
+      if(kept){
+        add[F.t] = 1;
+        var isTo, compV;
+        if(s.useDur){                             // 含时长列 → 统一 ≥480s 口径
+          var ov = isFinite(overS) ? overS : 0;   // 空值按 0 计（不视作超时）
+          isTo = ov >= 480; compV = composite(ov);
+        }else{                                    // 仅考核口径的文件
+          isTo = s.idx.onTime>=0 && !truthy(cells[s.idx.onTime]);
+          compV = s.idx.comp>=0 ? (parseFloat(cells[s.idx.comp])||0) : 0;
+        }
+        if(isTo){ add[F.o] = 1; if(hi) add[F.t8hi] = 1; }
+        add[F.comp] = compV;
+        if(hi) add[F.hi] = 1;
+        if(star) add[F.star] = 1;
+        add[F.missAdd] = early*2 + fakeCan + fakeGrab;   // 完全妥投率分母附加
+      }else{
+        add[F.missAdd] = (fault?1:0) + (fault&&hi?1:0) + (fault&&star?2:0) + fakeCan + fakeGrab;
+        // 口径：物流责未完成单×1（含高笔/星巴克）＋高笔单物流责未完成单×1（合计 2）＋星巴克物流责未完成单×2（合计 3）
+        s.exclRows.push([ (s.idx.st>=0? (cells[s.idx.st]||'未知站点'):'未知站点'),
+                          (s.idx.name>=0? (cells[s.idx.name]||'未知'):'未知'),
+                          rid, kind,
+                          (s.idx.cancelT>=0? dateOf(cells[s.idx.cancelT]):'') || d ]);
+      }
+      if(early) add[F.early] = 1;
+      if(fakeCan) add[F.fakeCan] = 1;
+      if(fakeGrab) add[F.fakeGrab] = 1;
+      if(fakeT8) add[F.fakeT8] = 1;
+      if(cmpl) add[F.cmpl] = 1;
+      if(bad) add[F.bad] = 1;
+      if(claim) add[F.claim] = 1;
+      var g = s.grid[d] || (s.grid[d] = {});
+      var cell = g[ri];
+      if(!cell){ cell = g[ri] = new Array(NF*4); for(var z2=0;z2<NF*4;z2++) cell[z2]=0; }
+      var base = b*NF;
+      for(var z3=0;z3<NF;z3++) cell[base+z3] += add[z3];
+      if(kept) s.rows++;
       if(s.rows % 5000 === 0 && onProgress) onProgress(s.rows);
     }
     for(;;){
@@ -470,17 +584,21 @@
     var grid = dates.map(function(d){
       return Object.keys(s.grid[d]).map(function(ri){ return [+ri].concat(s.grid[d][ri]); });
     });
-    var to = 0, comp = 0;
+    var to = 0, comp = 0, accN = 0;
     grid.forEach(function(g){ g.forEach(function(e){
-      for(var b=0;b<4;b++){ to += e[1+b*3+1]; comp += e[1+b*3+2]; }
+      for(var b=0;b<4;b++){ to += e[1+b*NF+F.o]; comp += e[1+b*NF+F.comp]; accN += e[1+b*NF+F.acc]; }
     })});
     return {
+      v: 7, nf: NF,
       dates: dstr, last: dstr[dstr.length-1], riders: s.order, grid: grid,
       excl: buildExcl(s.exclRows),
       flags: [{key:'f1',label:'是否二呼单'},{key:'f2',label:'是否出餐慢报备'}],
-      avail: { f1: s.idx.f1>=0, f2: (s.idx.f2>=0 || s.idx.report>=0) },
+      avail: { f1: s.idx.f1>=0, f2: (s.idx.f2>=0 || s.idx.report>=0),
+               miss: true, t8: true, comp: true,
+               sat: (s.idx.cmpl>=0 && s.idx.bad>=0 && s.idx.claim>=0),
+               early: s.idx.early>=0, brand: s.idx.brand>=0 },
       fmt: s.fmt,
-      meta: { total: s.rows, to: to, comp: Math.round(comp), src: file.name, excl: s.skip }
+      meta: { total: s.rows, acc: accN, to: to, comp: Math.round(comp), src: file.name, excl: s.skip }
     };
   }
   /* ================= 概览 ================= */
@@ -515,6 +633,11 @@
   /* ================= 趋势 ================= */
   var META = {
     rate:{key:'r', lab:'超时率', unit:'%', color:'#2563eb', dec:2},
+    miss:{key:'missR', lab:'不完全妥投率', unit:'%', color:'#dc2626', dec:2},
+    full:{key:'fullR', lab:'完全妥投率', unit:'%', color:'#059669', dec:2},
+    t8:{key:'t8R', lab:'预测T8准时率', unit:'%', color:'#0891b2', dec:2},
+    t8l:{key:'t8Late', lab:'T8超时率', unit:'%', color:'#be185d', dec:2},
+    sat:{key:'satR', lab:'非时效不满意度', unit:'%', color:'#d97706', dec:2},
     comp:{key:'c', lab:'单均复合', unit:'秒', color:'#7c3aed', dec:1},
     tot:{key:'t', lab:'单量', unit:'单', color:'#0ea5e9', dec:0}
   };
@@ -522,7 +645,8 @@
   function drawTrend(byD){
     var m = META[metric], k = m.key;
     var data = byD.map(function(x){
-      var a = x.a; return { dt:x.dt, r:a.r, c:a.c, t:a.t, o:a.o };
+      var a = x.a; return { dt:x.dt, r:a.r, c:a.c, t:a.t, o:a.o, missR:a.missR, fullR:a.fullR,
+                            t8R:a.t8R, t8Late:a.t8Late, satR:a.satR };
     });
     var W=760,H=420, pl=48, pr=14, pt=34, pb=50;
     var iw=W-pl-pr, ih=H-pt-pb;
@@ -554,7 +678,7 @@
       var i = +b.getAttribute('data-i'), x = data[i];
       function show(e){
         var p = e.touches? e.touches[0] : e;
-        tip.innerHTML = x.dt+' ｜ 超时率 <b>'+pct(x.r)+'</b> ｜ 单均复合 <b>'+fmt(x.c,1)+'s</b> ｜ 单量 '+x.t;
+        tip.innerHTML = x.dt+' ｜ '+m.lab+' <b>'+fmt(x[k],m.dec)+m.unit+'</b> ｜ 单量 '+x.t;
         tip.style.left = p.clientX+'px'; tip.style.top = p.clientY+'px'; tip.style.opacity = 1;
       }
       b.addEventListener('mouseenter', show); b.addEventListener('mousemove', show);
@@ -584,6 +708,144 @@
     this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
     b.classList.add('on'); drawTrend(LASTBYD);
   });
+  /* 表格视图切换：超时视图 / 质量指标视图 */
+  function syncSortSeg(){
+    var seg = $('#sortSeg'); if(!seg) return;
+    seg.querySelectorAll('button').forEach(function(b){
+      b.classList.toggle('on', b.getAttribute('data-s')===sortKey);
+    });
+  }
+  if($('#viewSeg')) $('#viewSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return;
+    view = b.getAttribute('data-v');
+    this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
+    b.classList.add('on');
+    sortKey = view==='quality' ? 'score' : 'r'; sortDir = -1;
+    syncSortSeg(); renderTable();
+  });
+  /* 综合评价分口径切换 */
+  if($('#scoreSeg')) $('#scoreSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return;
+    scoreMode = b.getAttribute('data-s');
+    renderScore(); renderStations(); renderTable();
+  });
+  /* 综合评价分榜里的骑手行也能点开明细 */
+  if($('#scoreRiders')) $('#scoreRiders').addEventListener('click', function(e){
+    var tr = e.target.closest('tr.rrow'); if(!tr) return;
+    openRider(+tr.getAttribute('data-ri'));
+  });
+  /* 四指标卡 / 综合评价分的口径切换按钮（若存在） */
+  if($('#mViewSeg')) $('#mViewSeg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if(!b) return;
+    view = b.getAttribute('data-v');
+    this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
+    b.classList.add('on');
+    sortKey = view==='quality' ? 'score' : 'r'; sortDir = -1;
+    syncSortSeg(); renderTable();
+    var el = document.getElementById('riderRank');
+    if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+
+  /* ================= 质量四指标 + 综合评价分 ================= */
+  function mcard(lab, val, unit, l1, l2, color){
+    return '<div class="card"><div class="lab">'+lab+'</div>'+
+      '<div class="val" style="color:'+color+'">'+val+'<small>'+unit+'</small></div>'+
+      '<div class="foot">'+l1+'</div><div class="foot">'+l2+'</div></div>';
+  }
+  function renderMetrics(byD){
+    var dts = dayList();
+    var T = aggScope(sel, dts);
+    var hh = function(s){ return s>=3600 ? (s/3600).toFixed(1)+' 小时' : Math.round(s)+' 秒' };
+    var av = D.avail || {};
+    var warn = '';
+    if(D.legacy) warn = '<div class="note" style="color:#b45309">⚠️ 当前数据是本机缓存的<b>旧版数据</b>（不含四指标字段），下方四指标恒为 0 或不完整，'+
+      '请点上方「⬆ 载入数据」重新上传 xlsx（考核明细或运单明细均可）。</div>';
+    else if(av.sat === false) warn = '<div class="note" style="color:#b45309">⚠️ 该数据源缺少「投诉 / 差评 / 索赔」列，④ 非时效不满意度按 0 计（该指标不可用）。</div>';
+    $('#mKpi').innerHTML =
+      mcard('① 完全妥投率', pct(T.fullR), '', '加权未完成单 <b>'+Math.round(T.missAdd)+'</b>',
+            '不完全妥投率 <b style="color:#dc2626">'+pct(T.missR)+'</b>', '#059669') +
+      mcard('② 预测T8准时率', pct(T.t8R), '', '加权超时单 <b>'+Math.round(T.t8Loss)+'</b>'+
+            '（含高笔 '+Math.round(T.t8hi)+' · 提前点送达 '+Math.round(T.early)+'）',
+            'T8超时率 <b style="color:#be185d">'+pct(T.t8Late)+'</b>', '#0891b2') +
+      mcard('③ 单均复合超时时长', fmt(T.avgComp,1), 's', '复合合计 <b>'+hh(T.s)+'</b>',
+            '有效完单 <b>'+T.t+'</b> 单', '#7c3aed') +
+      mcard('④ 非时效不满意度', pct(T.satR), '', '加权单 <b>'+Math.round(T.satW)+'</b>'+
+            '（投诉 '+T.cmpl+' ×5 · 差评 '+T.bad+' ×5 · 索赔 '+T.claim+' · 虚假报备 '+T.fakeCan+'）',
+            '接单 <b>'+T.acc+'</b> 单', '#d97706');
+    if($('#mWarn')) $('#mWarn').innerHTML = warn;
+
+    // 四指标逐日明细
+    $('#mTrendTable').innerHTML = byD && byD.length ?
+      '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th>'+
+      '<th class="num">完全妥投率</th><th class="num">不完全妥投率</th><th class="num">加权未完成</th>'+
+      '<th class="num">T8准时率</th><th class="num">T8超时率</th><th class="num">加权超时</th>'+
+      '<th class="num">单均复合</th><th class="num">非时效不满意度</th><th class="num">加权单</th></tr></thead><tbody>'+
+      byD.map(function(x){
+        var a = x.a;
+        return '<tr'+(x.dt===D.last?' style="background:#f5f8ff"':'')+'>'+
+          '<td style="font-weight:'+(x.dt===D.last?'700':'400')+'">'+x.dt+'</td>'+
+          '<td class="num">'+a.t+'</td>'+
+          '<td class="num" style="color:#059669;font-weight:600">'+pct(a.fullR)+'</td>'+
+          '<td class="num" style="color:#dc2626">'+pct(a.missR)+'</td><td class="num">'+Math.round(a.missAdd)+'</td>'+
+          '<td class="num" style="color:#0891b2;font-weight:600">'+pct(a.t8R)+'</td>'+
+          '<td class="num" style="color:#be185d">'+pct(a.t8Late)+'</td><td class="num">'+Math.round(a.t8Loss)+'</td>'+
+          '<td class="num">'+fmt(a.avgComp,1)+'s</td>'+
+          '<td class="num" style="color:#d97706;font-weight:600">'+pct(a.satR)+'</td>'+
+          '<td class="num">'+Math.round(a.satW)+'</td></tr>';
+      }).join('')+'</tbody></table></div>' : '<div class="empty">当前筛选下无数据</div>';
+  }
+  function scoreBar(x, T, i, showName){
+    var sc = x._sc, col = sc>=90 ? '#059669' : (sc>=80 ? '#f59e0b' : '#dc2626');
+    return '<tr'+(x.ri!==undefined?' class="rrow" data-ri="'+x.ri+'"':'')+'>'+
+      '<td><span class="rank'+(i<3?' t'+(i+1):'')+'">'+(i+1)+'</span></td>'+
+      '<td style="font-weight:600">'+esc(showName)+'</td>'+
+      (x.ri!==undefined?'<td class="muted">'+esc(x.st)+'</td>':'')+
+      '<td class="num">'+x.t+'</td>'+
+      '<td class="num" style="font-weight:800;color:'+col+'">'+fmt(sc,1)+'</td>'+
+      '<td class="num">'+pct(x.s1)+'</td><td class="num">'+pct(x.s2)+'</td>'+
+      '<td class="num">'+pct(x.s3)+'</td><td class="num">'+pct(x.s4)+'</td>'+
+      '<td class="barcell"><span class="xb" style="width:'+Math.max(2,100-sc)+'%;background:'+col+'55"></span>'+
+      '<em>'+fmt(sc,1)+'</em></td></tr>';
+  }
+  function renderScore(){
+    var dts = dayList();
+    var T = aggScope(sel, dts);
+    var stArr = byStation(sel, dts).filter(function(x){ return x.t>0 });
+    stArr.forEach(function(x){ x._sc = scoreOf(x, T) });
+    stArr.sort(function(a,b){ return a._sc-b._sc });
+    var rdArr = byRider(sel, dts).filter(function(x){ return x.t>=scope.min });
+    rdArr.forEach(function(x){ x._sc = scoreOf(x, T) });
+    rdArr.sort(function(a,b){ return b._sc-a._sc });
+
+    var head = '<tr><th>名次</th><th>对象</th><th>站点</th><th class="num">单量</th>'+
+      '<th class="num">综合分</th><th class="num">妥投占比</th><th class="num">T8占比</th>'+
+      '<th class="num">复合占比</th><th class="num">非时效占比</th><th>得分</th></tr>';
+    var headSt = '<tr><th>名次</th><th>站点</th><th class="num">单量</th><th class="num">综合分</th>'+
+      '<th class="num">妥投占比</th><th class="num">T8占比</th><th class="num">复合占比</th>'+
+      '<th class="num">非时效占比</th><th>得分</th></tr>';
+    var worst = rdArr.slice(0, 8);                        // 分最低 = 相对问题最多
+    var best = rdArr.slice(-8).reverse();                  // 分最高
+    $('#scoreSites').innerHTML = '<div style="overflow-x:auto"><table class="xtab"><thead>'+headSt+'</thead><tbody>'+
+      stArr.map(function(x,i){ return scoreBar(x, T, i, x.st.replace('福州','')) }).join('')+'</tbody></table></div>';
+    $('#scoreRiders').innerHTML = '<div style="overflow-x:auto"><table class="xtab"><thead>'+head+'</thead><tbody>'+
+      '<tr><td colspan="10" style="background:#fef2f2;font-weight:700;color:#b91c1c;padding:6px 8px">⚠️ 综合分最低 '+worst.length+' 名（相对团队贡献的问题最多）</td></tr>'+
+      worst.map(function(x,i){ return scoreBar(x, T, i, x.n) }).join('')+
+      '<tr><td colspan="10" style="background:#ecfdf5;font-weight:700;color:#047857;padding:6px 8px">✅ 综合分最高 '+best.length+' 名</td></tr>'+
+      best.map(function(x,i){ return scoreBar(x, T, i, x.n) }).join('')+
+      '</tbody></table></div>';
+    $('#scoreNote').innerHTML = '当前口径：<b>'+(scoreMode==='share'?'团队占比':'自身率值')+'</b> · '+
+      '筛选范围内 <b>'+rdArr.length+'</b> 名骑手（最少单量 ≥ '+scope.min+'）、<b>'+stArr.length+'</b> 个站点。'+
+      (scoreMode==='share'
+        ? '四个占比的分母 = 当前范围团队合计（加权未完成 '+Math.round(T.missAdd)+' · T8加权超时 '+Math.round(T.t8Loss)+
+          ' · 复合合计 '+Math.round(T.s)+'s · 非时效加权 '+Math.round(T.satW)+'）。<b>分越低 = 该对象在团队问题中的份额越大</b>；'+
+          '全员合计的占比均为 100%，按公式恒为 15 分，故该口径适合<b>对象之间横向比较</b>，不适合评价团队整体。'
+        : '各指标用对象<b>自身率值</b>代入（不完全妥投率、T8超时率、单均复合与团队均值的比值、非时效不满意度），消除单量规模影响，可用于团队整体评价。')+
+      '<br>点任一行骑手可查看其逐日明细。';
+    var seg = $('#scoreSeg');
+    if(seg) seg.querySelectorAll('button').forEach(function(b){
+      b.classList.toggle('on', b.getAttribute('data-s')===scoreMode);
+    });
+  }
 
   /* ================= 站点 ================= */
   function sparkline(arr, color, key){
@@ -601,32 +863,42 @@
   }
   function renderStations(){
     var dts = dayList();
-    var allSt = byStation(sel, dts).sort(function(a,b){ return b.r-a.r });
+    var T = aggScope(sel, dts);                    // 团队基准（综合分/占比分母）
+    var allSt = byStation(sel, dts).sort(function(a,b){ return scoreOf(a,T)-scoreOf(b,T) });
+    allSt.forEach(function(x){ x._sc = scoreOf(x, T) });
     var lastMap = {}; byStation(sel, [D.dates.length-1]).forEach(function(x){ lastMap[x.st]=x });
-    var avgRate = aggScope(sel, dts).r;
-    // 各站骑手数（整个周期，用于卡片上标注规模）
+    var avgRate = T.r;
     var rdCnt = {}; D.riders.forEach(function(r){ rdCnt[r.st] = (rdCnt[r.st]||0)+1 });
     $('#stationGrid').innerHTML = allSt.map(function(st){
       var lp = lastMap[st.st] || {t:0,r:0,c:0};
       var trend = dts.map(function(i){
-        var t=0,o=0,m=0;
+        var v = newVec();
         (D.grid[i]||[]).forEach(function(e){
           if(D.riders[e[0]].st!==st.st) return;
-          var x = cellSum(e.slice(1), sel); t+=x[0]; o+=x[1]; m+=x[2];
+          cellVec(e.slice(1), sel, v);
         });
-        return { r: t? o/t*100:0, c: t? m/t:0 };
+        var m = metricsOf(v);
+        return { r: m.r, c: m.c, sc: scoreOf(m, T) };
       });
       var worst = st.r >= avgRate;
+      var scCol = st._sc>=90 ? '#059669' : (st._sc>=80 ? '#f59e0b' : '#dc2626');
       return '<div class="card stcard" data-st="'+escA(st.st)+'" role="button" tabindex="0" title="点击查看「'+escA(st.st)+'」整个周期的明细">'+
         '<div class="h"><div><div class="stname">'+esc(st.st)+'</div>'+
         '<div class="muted" style="font-size:11.5px;margin-top:2px">'+st.t+' 单 · 超时 '+st.o+' 单 · 单均 '+fmt(st.c,1)+'s · '+(rdCnt[st.st]||0)+' 名骑手</div></div>'+
-        '<div style="text-align:right"><div style="font-size:20px;font-weight:800;color:'+(worst?'#ef4444':'#10b981')+'">'+pct(st.r)+'</div>'+
-        '<div class="muted" style="font-size:11px">超时率</div></div></div>'+
+        '<div style="text-align:right"><div style="font-size:20px;font-weight:800;color:'+scCol+'">'+fmt(st._sc,1)+'</div>'+
+        '<div class="muted" style="font-size:11px">综合评价分</div></div></div>'+
+        '<div class="mchips">'+
+          '<span title="不完全妥投率">妥投 <b style="color:#dc2626">'+pct(st.missR)+'</b></span>'+
+          '<span title="预测T8准时率">T8 <b style="color:#0891b2">'+pct(st.t8R)+'</b></span>'+
+          '<span title="单均复合超时时长">复合 <b style="color:#7c3aed">'+fmt(st.avgComp,1)+'s</b></span>'+
+          '<span title="非时效不满意度">非时效 <b style="color:#d97706">'+pct(st.satR)+'</b></span>'+
+          '<span title="超时率">超时 <b style="color:'+(worst?'#ef4444':'#10b981')+'">'+pct(st.r)+'</b></span>'+
+        '</div>'+
         '<div style="font-size:11.5px;color:#475467">最新 <b>'+lp.t+'</b> 单 / 超时率 <b>'+pct(lp.r)+'</b> / 单均 <b>'+fmt(lp.c,1)+'</b>s</div>'+
         sparkline(trend, worst?'#ef4444':'#10b981','r')+
         '<div class="stmore">查看整个周期明细 ›</div></div>';
     }).join('') +
-    '<div class="note" style="grid-column:1/-1;margin:2px 4px 0">👆 点任意站点卡片 → 查看该站<b>整个周期</b>的逐日趋势（图表 + 每日数据标注）、每日明细表与该站骑手排行</div>';
+    '<div class="note" style="grid-column:1/-1;margin:2px 4px 0">👆 点任意站点卡片 → 查看该站<b>整个周期</b>的逐日趋势（图表 + 每日数据标注）、每日明细表与该站骑手排行；站卡片按<b>综合评价分</b>升序（分低＝相对团队贡献的问题更多）</div>';
   }
   /* 站点卡片点击 → 站点详情 */
   $('#stationGrid').addEventListener('click', function(e){
@@ -640,7 +912,7 @@
   });
 
   /* ================= 骑手表（可排序 + 占比） ================= */
-  var COLS = [
+  var COLS_T = [
     { k:'idx',    lab:'排名',        num:false, sortable:false },
     { k:'n',      lab:'骑手',        num:false },
     { k:'st',     lab:'站点',        num:false },
@@ -652,22 +924,51 @@
     { k:'shareS', lab:'复合占比',    num:true },
     { k:'c',      lab:'单均复合',num:true }
   ];
+  /* 质量指标视图：四个考核指标 = 单数 / 团队占比 / 率值，另加综合评价分 */
+  var COLS_Q = [
+    { k:'idx',    lab:'综合排名',    num:false, sortable:false },
+    { k:'n',      lab:'骑手',        num:false },
+    { k:'st',     lab:'站点',        num:false },
+    { k:'t',      lab:'单量',        num:true },
+    { k:'score',  lab:'综合评价分',  num:true },
+    { k:'missAdd',lab:'妥投·加权未完成', num:true },
+    { k:'s1',     lab:'妥投占比',    num:true },
+    { k:'missR',  lab:'不完全妥投率', num:true },
+    { k:'t8W',    lab:'T8·加权超时', num:true },
+    { k:'s2',     lab:'T8占比',      num:true },
+    { k:'t8Late', lab:'T8超时率',    num:true },
+    { k:'s',      lab:'复合总时长',  num:true },
+    { k:'s3',     lab:'复合占比',    num:true },
+    { k:'avgComp',lab:'单均复合',    num:true },
+    { k:'satW',   lab:'非时效·加权单', num:true },
+    { k:'s4',     lab:'非时效占比',  num:true },
+    { k:'satR',   lab:'非时效不满意度', num:true }
+  ];
+  function COLS(){ return view==='quality' ? COLS_Q : COLS_T }
   function renderTable(){
+    var cols = COLS();
     var dts = dayList();
+    var T = aggScope(sel, dts);                   // 团队基准
     var base = byRider(sel, dts);
-    var tot = aggScope(sel, dts);                 // 全部骑手合计 → 占比分母
     base.forEach(function(x){
-      x.shareO = tot.o ? x.o/tot.o*100 : 0;
-      x.shareS = tot.s ? x.s/tot.s*100 : 0;
+      x.shareO = T.o ? x.o/T.o*100 : 0;
+      x.shareS = T.s ? x.s/T.s*100 : 0;
+      // —— 四个指标的加权分子与团队占比（加权系数取自平台口径）——
+      x.t8W  = x.t8Loss;
+      x.score = scoreOf(x, T);
+      var sh = sharesOf(x, T);
+      x.s1 = sh.s1; x.s2 = sh.s2; x.s3 = sh.s3; x.s4 = sh.s4;
     });
     // ① 先按「最少单量 / 站点 / 搜索」筛出候选池
     var pool = base.filter(function(x){
       return x.t>=scope.min && (scope.st==='__all__' || x.st===scope.st) &&
              (!scope.q || x.n.indexOf(scope.q)>=0);
     });
-    // ② 在候选池内按「超时率」降序定排名（并列时超时单多者在前）
+    // ② 在候选池内按「超时率」降序定排名（并列时超时单多者在前）；另给综合分排名
     pool.slice().sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) })
         .forEach(function(x,i){ x.rk = i+1 });
+    pool.slice().sort(function(a,b){ return (b.score-a.score) || (b.t-a.t) })
+        .forEach(function(x,i){ x.srk = i+1 });
     // ③ 排名筛选：只保留超时率排名前 N%（至少留 1 人，避免小样本时整表空掉）
     var cut = 0, list = pool;
     if(scope.rank > 0 && pool.length){
@@ -683,7 +984,7 @@
       return (va-vb) * dir;
     });
 
-    var thead = '<tr>' + COLS.map(function(c){
+    var thead = '<tr>' + cols.map(function(c){
       var active = (c.k===k), arrow = active ? (dir>0?' ▲':' ▼') : '', cls = [];
       if(c.num) cls.push('num');
       if(c.sortable!==false) cls.push('sorth');
@@ -694,9 +995,31 @@
 
     if(!list.length){
       $('#riderTable').querySelector('tbody').innerHTML =
-        '<tr><td colspan="'+COLS.length+'" class="empty">无符合条件的数据（可放宽筛选、降低「最少单量」或把排名筛选改为「全部」）</td></tr>';
+        '<tr><td colspan="'+cols.length+'" class="empty">无符合条件的数据（可放宽筛选、降低「最少单量」或把排名筛选改为「全部」）</td></tr>';
+    } else if(view === 'quality'){
+      $('#riderTable').querySelector('tbody').innerHTML = list.map(function(x){
+        var scCol = x.score>=90 ? '#059669' : (x.score>=80 ? '#b45309' : '#dc2626');
+        return '<tr class="rrow" data-ri="'+x.ri+'" title="超时率排名第 '+x.rk+' 名">'+
+          '<td><span class="rank'+(x.srk<=3?' t'+x.srk:'')+'">'+x.srk+'</span></td>'+
+          '<td style="font-weight:600">'+esc(x.n)+'</td>'+
+          '<td class="muted">'+esc(x.st)+'</td>'+
+          '<td class="num">'+x.t+'</td>'+
+          '<td class="num" style="font-weight:800;color:'+scCol+'">'+fmt(x.score,1)+'</td>'+
+          '<td class="num">'+Math.round(x.missAdd)+'</td>'+
+          '<td class="num">'+pct(x.s1)+'</td>'+
+          '<td class="num" style="color:#dc2626;font-weight:600">'+pct(x.missR)+'</td>'+
+          '<td class="num">'+Math.round(x.t8W)+'</td>'+
+          '<td class="num">'+pct(x.s2)+'</td>'+
+          '<td class="num" style="color:#be185d;font-weight:600">'+pct(x.t8Late)+'</td>'+
+          '<td class="num">'+Math.round(x.s)+'</td>'+
+          '<td class="num">'+pct(x.s3)+'</td>'+
+          '<td class="num">'+fmt(x.avgComp,1)+'<span class="muted"> s</span></td>'+
+          '<td class="num">'+Math.round(x.satW)+'</td>'+
+          '<td class="num">'+pct(x.s4)+'</td>'+
+          '<td class="num" style="color:#d97706;font-weight:600">'+pct(x.satR)+'</td></tr>';
+      }).join('');
     } else {
-      $('#riderTable').querySelector('tbody').innerHTML = list.map(function(x,i){
+      $('#riderTable').querySelector('tbody').innerHTML = list.map(function(x){
         var rc = rateColor(x.r), rk = x.rk<=3 ? ' t'+x.rk : '';
         return '<tr class="rrow" data-ri="'+x.ri+'" title="超时率排名第 '+x.rk+' 名">'+
           '<td><span class="rank'+rk+'">'+x.rk+'</span></td>'+
@@ -714,11 +1037,18 @@
     var rankTxt = scope.rank>0
       ? '排名筛选 <b>超时率前 '+scope.rank+'%</b>（候选 '+pool.length+' 名 → 取前 '+cut+' 名）'
       : '排名筛选 <b>不限</b>（候选 '+pool.length+' 名）';
+    var sortLab = view==='quality'
+      ? { idx:'综合排名', n:'骑手', st:'站点', t:'单量', score:'综合评价分', missAdd:'妥投加权单', s1:'妥投占比', missR:'不完全妥投率',
+          t8W:'T8加权超时单', s2:'T8占比', t8Late:'T8超时率', s:'复合总时长', s3:'复合占比', avgComp:'单均复合',
+          satW:'非时效加权单', s4:'非时效占比', satR:'非时效不满意度' }
+      : { idx:'排名', n:'骑手', st:'站点', t:'单量', o:'超时单', r:'超时率', shareO:'超时占比', s:'复合总时长', shareS:'复合占比', c:'单均复合' };
     $('#tblNote').innerHTML = '<b style="color:#1d4ed8">👆 点任意一行骑手可查看逐日明细</b> · 当前：<b>'+(scope.day==='__all__'?'全周期':scope.day)+'</b> · '+
-      '「排名」列 = <b>超时率排名</b>（在候选池内，1 = 超时率最高）<br>'+
+      '「'+(view==='quality'?'综合排名':'排名')+'」列 = <b>'+(view==='quality'?'综合评价分排名（1 = 分最高）':'超时率排名（1 = 超时率最高）')+'</b><br>'+
       '筛选：最少单量 ≥ '+scope.min+' · '+rankTxt+' · 实际展示 <b>'+list.length+'</b> 名 · '+
-      '排序：'+({idx:'排名',n:'骑手',st:'站点',t:'单量',o:'超时单',r:'超时率',shareO:'超时占比',s:'复合总时长',shareS:'复合占比',c:'单均复合'}[k])+(dir>0?' ↑':' ↓')+
-      ' · 占比分母=当前范围全部骑手（超时 '+tot.o+' 单 / 复合合计 '+Math.round(tot.s)+' 秒）';
+      '排序：'+(sortLab[k]||k)+(dir>0?' ↑':' ↓')+
+      ' · 占比分母=当前范围全部骑手（未完成加权 '+Math.round(T.missAdd)+' · T8加权超时 '+Math.round(T.t8Loss)+
+      ' · 复合合计 '+Math.round(T.s)+'s · 非时效加权 '+Math.round(T.satW)+'）'+
+      (view==='quality' ? '<br>综合评价分口径：<b>'+(scoreMode==='share'?'团队占比':'自身率值')+'</b> —— 公式 100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100' : '');
   }
   var _tapStart = null, _tapTimer = null, _rowTouchUsed = 0;
   function rowAt(x, y){
@@ -821,12 +1151,36 @@
     s += '</svg>';
     return '<div class="chartwrap">'+s+'</div>';
   }
+  /* ================= 四项考核指标区块（骑手/站点弹窗共用） ================= */
+  function metricBlock(m, T){
+    var sh = sharesOf(m, T), sc = scoreOf(m, T);
+    var col = sc>=90 ? '#059669' : (sc>=80 ? '#b45309' : '#dc2626');
+    var mc = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
+    return '<div class="mtabcap">🧮 四项考核指标 <span style="font-weight:400;color:#98a2b3">'+
+      '加权未完成 '+Math.round(m.missAdd)+' 单 · 加权超时 '+Math.round(m.t8Loss)+' 单 · 复合合计 '+Math.round(m.s)+
+      's · 非时效加权 '+Math.round(m.satW)+' 单</span></div>'+
+      '<div class="mgrid">'+
+        mc('综合评价分', '<span style="color:'+col+'">'+fmt(sc,1)+'</span>') +
+        mc('① 完全妥投率', pct(m.fullR)) +
+        mc('① 不完全妥投率 <em>团队占比 '+pct(sh.s1)+'</em>', pct(m.missR)) +
+        mc('① 加权未完成单', Math.round(m.missAdd)) +
+        mc('② 预测T8准时率', pct(m.t8R)) +
+        mc('② T8超时率 <em>团队占比 '+pct(sh.s2)+'</em>', pct(m.t8Late)) +
+        mc('② 加权超时单', Math.round(m.t8Loss)) +
+        mc('③ 单均复合时长', fmt(m.avgComp,1)+'s') +
+        mc('③ 复合时长 <em>团队占比 '+pct(sh.s3)+'</em>', Math.round(m.s)+'s') +
+        mc('④ 非时效不满意度', pct(m.satR)) +
+        mc('④ 非时效加权单 <em>团队占比 '+pct(sh.s4)+'</em>', Math.round(m.satW)) +
+        mc('接单量 / 有效完单', m.acc+' / '+m.t) +
+      '</div>';
+  }
   function openRider(ri){
     var days = riderDays(ri, sel);            // 始终取该骑手全部日期的数据
     var r = D.riders[ri];
     var t=0,o=0,m=0;
     days.forEach(function(d){ t+=d.t; o+=d.o; m+=d.s });
     var tot = aggScope(sel, allDays());       // 占比分母同样用全量日期
+    var rv = newVec(); days.forEach(function(d){ addVec(rv, d._v) });
     var mcell = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
     var html = '<div class="modal-card">'+
       '<div class="mhead"><div><div class="mtitle">'+esc(r.n)+'</div>'+
@@ -840,16 +1194,23 @@
         mcell('超时占比', pct(tot.o? o/tot.o*100:0)) + mcell('复合时长占比', pct(tot.s? m/tot.s*100:0)) +
         mcell('复合总时长', Math.round(m)+'s') + mcell('活跃天数', days.length) +
       '</div>'+
+      metricBlock(metricsOf(rv), tot)+
       statLine(days)+
       '<div class="mlegend"><span><i style="background:'+C_RATE+'"></i>超时率（左轴·实线）</span>'+
         '<span><i style="background:'+C_COMP+'"></i>单均复合（右轴·虚线）</span>'+
         '<span style="color:#98a2b3">点上/点下数字为每日实际值</span></div>'+
       lineChart(days)+
       '<div class="mtabcap">📅 每日明细（整个周期）</div>'+
-      '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">超时单</th><th class="num">超时率</th><th class="num">单均复合</th></tr></thead><tbody>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">超时单</th>'+
+      '<th class="num">超时率</th><th class="num">完全妥投率</th><th class="num">T8准时率</th>'+
+      '<th class="num">单均复合</th><th class="num">非时效不满意</th></tr></thead><tbody>'+
         days.map(function(d){
           return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
-            '<td class="num">'+pct(d.r)+'</td><td class="num">'+fmt(d.c,1)+'s</td></tr>';
+            '<td class="num">'+pct(d.r)+'</td>'+
+            '<td class="num" style="color:#059669">'+pct(d.fullR)+'</td>'+
+            '<td class="num" style="color:#0891b2">'+pct(d.t8R)+'</td>'+
+            '<td class="num">'+fmt(d.c,1)+'s</td>'+
+            '<td class="num" style="color:#d97706">'+pct(d.satR)+'</td></tr>';
         }).join('')+'</tbody></table></div></div>';
     var mo = $('#modal');
     mo.className = 'modal';
@@ -873,32 +1234,45 @@
   function openStation(st){
     var days = stationDays(st, sel);          // 整个周期，不随上方日期筛选变化
     var allRd = stationRiders(st, sel);
-    var rd = allRd.filter(function(x){ return x.t>=scope.min && x.t>0 })
-                  .sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) });
+    var rd = allRd.filter(function(x){ return x.t>=scope.min && x.t>0 });
     var t=0,o=0,m=0;
     days.forEach(function(d){ t+=d.t; o+=d.o; m+=d.s });
     var tot = aggScope(sel, allDays());       // 占比分母同样用全量日期
+    rd.sort(function(a,b){ return (scoreOf(b,tot)-scoreOf(a,tot)) || (b.t-a.t) });
     var mcell = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
     var dayTab = '<div style="overflow-x:auto"><table><thead><tr>'+
       '<th>日期</th><th class="num">单量</th><th class="num">超时单</th><th class="num">超时率</th>'+
-      '<th class="num">单均复合</th><th class="num">出勤骑手</th></tr></thead><tbody>'+
+      '<th class="num">完全妥投率</th><th class="num">T8准时率</th><th class="num">单均复合</th>'+
+      '<th class="num">非时效不满意</th><th class="num">出勤骑手</th></tr></thead><tbody>'+
       days.map(function(d){
         return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
           '<td class="num" style="color:'+rateColor(d.r)+';font-weight:700">'+pct(d.r)+'</td>'+
-          '<td class="num">'+fmt(d.c,1)+'s</td><td class="num">'+d.rd+'</td></tr>';
+          '<td class="num" style="color:#059669">'+pct(d.fullR)+'</td>'+
+          '<td class="num" style="color:#0891b2">'+pct(d.t8R)+'</td>'+
+          '<td class="num">'+fmt(d.c,1)+'s</td>'+
+          '<td class="num" style="color:#d97706">'+pct(d.satR)+'</td>'+
+          '<td class="num">'+d.rd+'</td></tr>';
       }).join('')+'</tbody></table></div>';
     var rTab = '<div style="overflow-x:auto"><table><thead><tr>'+
-      '<th>排名</th><th>骑手</th><th class="num">单量</th><th class="num">超时单</th>'+
-      '<th class="num">超时率</th><th class="num">单均复合</th><th class="num">超时占比</th></tr></thead><tbody>'+
+      '<th>排名</th><th>骑手</th><th class="num">单量</th><th class="num">综合分</th><th class="num">超时单</th>'+
+      '<th class="num">超时率</th><th class="num">完全妥投率</th><th class="num">T8准时率</th>'+
+      '<th class="num">单均复合</th><th class="num">非时效不满意</th><th class="num">超时占比</th></tr></thead><tbody>'+
       (rd.length ? rd.map(function(x,i){
+        var sc = scoreOf(x, tot);
+        var col = sc>=90 ? '#059669' : (sc>=80 ? '#b45309' : '#dc2626');
         return '<tr class="rrow mrrow" data-ri="'+x.ri+'" title="点击查看 '+escA(x.n)+' 的逐日明细">'+
           '<td><span class="rank'+(i<3?' t'+(i+1):'')+'">'+(i+1)+'</span></td>'+
           '<td style="font-weight:600">'+esc(x.n)+'</td>'+
-          '<td class="num">'+x.t+'</td><td class="num">'+x.o+'</td>'+
+          '<td class="num">'+x.t+'</td>'+
+          '<td class="num" style="font-weight:800;color:'+col+'">'+fmt(sc,1)+'</td>'+
+          '<td class="num">'+x.o+'</td>'+
           '<td class="num" style="color:'+rateColor(x.r)+';font-weight:700">'+pct(x.r)+'</td>'+
+          '<td class="num" style="color:#059669">'+pct(x.fullR)+'</td>'+
+          '<td class="num" style="color:#0891b2">'+pct(x.t8R)+'</td>'+
           '<td class="num">'+fmt(x.c,1)+'s</td>'+
+          '<td class="num" style="color:#d97706">'+pct(x.satR)+'</td>'+
           '<td class="num">'+pct(t? x.o/t*100:0)+'</td></tr>';
-      }).join('') : '<tr><td colspan="7" class="empty">该站点在当前筛选下无骑手数据</td></tr>')+
+      }).join('') : '<tr><td colspan="11" class="empty">该站点在当前筛选下无骑手数据</td></tr>')+
       '</tbody></table></div>';
     var html = '<div class="modal-card">'+
       '<div class="mhead"><div><div class="mtitle">'+esc(st)+'</div>'+
@@ -913,6 +1287,7 @@
         mcell('超时占比', pct(tot.o? o/tot.o*100:0)) + mcell('复合时长占比', pct(tot.s? m/tot.s*100:0)) +
         mcell('复合总时长', Math.round(m)+'s') + mcell('出勤骑手', allRd.length) +
       '</div>'+
+      metricBlock(metricsOf((function(){ var v=newVec(); days.forEach(function(d){ addVec(v, d._v) }); return v })()), tot)+
       statLine(days)+
       '<div class="mlegend"><span><i style="background:'+C_RATE+'"></i>超时率（左轴·实线）</span>'+
         '<span><i style="background:'+C_COMP+'"></i>单均复合（右轴·虚线）</span>'+
@@ -920,7 +1295,7 @@
       lineChart(days)+
       '<div class="mtabcap">📅 每日明细（整个周期）</div>'+ dayTab +
       '<div class="mtabcap">👥 该站骑手排行 <span style="font-weight:400;color:#98a2b3">共 '+allRd.length+' 名出勤，'+
-        '按最少单量 ≥ '+scope.min+' 显示 '+rd.length+' 名；点任一行看逐日明细</span></div>'+ rTab +
+        '按最少单量 ≥ '+scope.min+' 显示 '+rd.length+' 名（<b>按综合评价分降序</b>）；点任一行看逐日明细</span></div>'+ rTab +
       '</div>';
     var mo = $('#modal');
     mo.className = 'modal';
@@ -981,6 +1356,16 @@
   /* ================= 本机数据持久化 =================
      数据只存本地（IndexedDB，回退 localStorage），不随页面分发、不上传服务器 */
   var DB_NAME = 'riderDashDB', KV = 'dataset';
+  /* IndexedDB 在个别环境（无头浏览器 / 隐私模式 / 存储受限）可能既不成功也不报错，
+     这里统一加超时，避免界面卡在「正在解析…」或永远不恢复数据 */
+  function withTimeout(p, ms, tag){
+    return new Promise(function(res, rej){
+      var done = false;
+      var t = setTimeout(function(){ if(!done){ done = true; rej(new Error(tag)) } }, ms);
+      p.then(function(v){ if(!done){ done = true; clearTimeout(t); res(v) } },
+             function(e){ if(!done){ done = true; clearTimeout(t); rej(e) } });
+    });
+  }
   function idbOpen(){
     return new Promise(function(res, rej){
       if(!window.indexedDB) return rej(new Error('no-idb'));
@@ -992,38 +1377,38 @@
   }
   function saveLocal(data){
     var payload = { v: 1, savedAt: Date.now(), data: data };
-    return idbOpen().then(function(db){
-      return new Promise(function(res, rej){
+    return withTimeout(idbOpen(), 4000, 'idb-open-timeout').then(function(db){
+      return withTimeout(new Promise(function(res, rej){
         var tx = db.transaction('kv','readwrite');
         tx.objectStore('kv').put(payload, KV);
         tx.oncomplete = function(){ db.close(); res('IndexedDB') };
         tx.onerror = function(){ db.close(); rej(tx.error) };
-      });
+      }), 4000, 'idb-put-timeout');
     }).catch(function(){
       try{ localStorage.setItem(KV, JSON.stringify(payload)); return 'localStorage' }
       catch(e){ throw new Error('本机存储不可用（隐私模式或空间不足）') }
     });
   }
   function loadLocal(){
-    return idbOpen().then(function(db){
-      return new Promise(function(res, rej){
+    return withTimeout(idbOpen(), 4000, 'idb-open-timeout').then(function(db){
+      return withTimeout(new Promise(function(res, rej){
         var tx = db.transaction('kv','readonly'), rq = tx.objectStore('kv').get(KV);
         rq.onsuccess = function(){ db.close(); res(rq.result || null) };
         rq.onerror = function(){ db.close(); rej(rq.error) };
-      });
+      }), 4000, 'idb-get-timeout');
     }).catch(function(){
       try{ var s = localStorage.getItem(KV); return s ? JSON.parse(s) : null }
       catch(e){ return null }
     });
   }
   function clearLocal(){
-    return idbOpen().then(function(db){
-      return new Promise(function(res){
+    return withTimeout(idbOpen(), 4000, 'idb-open-timeout').then(function(db){
+      return withTimeout(new Promise(function(res){
         var tx = db.transaction('kv','readwrite');
         tx.objectStore('kv').delete(KV);
         tx.oncomplete = function(){ db.close(); res(true) };
         tx.onerror = function(){ db.close(); res(false) };
-      });
+      }), 4000, 'idb-del-timeout');
     }).catch(function(){
       try{ localStorage.removeItem(KV); return true }catch(e){ return false }
     });
@@ -1045,6 +1430,28 @@
     setStatus('尚无数据 · 请点「⬆ 载入数据」选择运单明细 xlsx');
   }
 
+  /* 旧版数据（每组 3 字段）升级为 15 字段布局：新字段一律 0，并标记 legacy 以提示重新上传 */
+  function normalizeData(dat){
+    if(!dat || !dat.grid) return dat;
+    var stride = dat.nf || 0;
+    if(!stride){
+      var c = null;
+      for(var i=0;i<dat.grid.length && !c;i++){ var g = dat.grid[i]; if(g && g.length) c = g[0]; }
+      stride = c ? Math.round((c.length-1)/4) : 3;
+    }
+    if(stride === NF){ dat.nf = NF; if(!dat.v) dat.v = 7; return dat }
+    dat.legacy = true;
+    dat.grid = dat.grid.map(function(day){
+      return (day||[]).map(function(e){
+        var out = [e[0]];
+        for(var b=0;b<4;b++)
+          for(var k=0;k<NF;k++) out.push(k<stride ? (e[1+b*stride+k]||0) : 0);
+        return out;
+      });
+    });
+    dat.nf = NF;
+    return dat;
+  }
   function dataSummary(){
     var ex = D.meta.excl, exTxt = '';
     if(ex){
@@ -1058,6 +1465,7 @@
     }
     return '当前数据：'+D.meta.total+' 单 · '+D.dates.length+' 天（'+D.dates[0]+'~'+D.last+'）· '+D.riders.length+' 骑手 · '+
       '整体超时率 '+pct(D.meta.to/D.meta.total*100)+
+      (D.meta.acc ? ' · 接单 '+D.meta.acc+' 单（含未妥投）' : '')+
       (D.meta.fmt ? ' · 口径 '+D.meta.fmt : '') + exTxt;
   }
   function buildControls(){
@@ -1102,7 +1510,7 @@
         var rec = JSON.parse(await f.text());
         var dd = rec && rec.data ? rec.data : rec;
         if(!dd || !dd.meta || !dd.meta.total) throw new Error('不是本看板导出的数据文件');
-        D = dd; applyData(true);
+        D = normalizeData(dd); applyData(true);
         var where = await saveLocal(D);
         setStatus('✅ 已载入数据文件 <b>'+esc(f.name)+'</b>：'+dataSummary());
         renderAll();
@@ -1457,6 +1865,8 @@
     renderFilterBar();
     LASTBYD = renderKPI();
     drawTrend(LASTBYD);
+    renderMetrics(LASTBYD);
+    renderScore();
     renderStations();
     renderTable();
     renderExcl();
@@ -1485,23 +1895,37 @@
     '<b>点击站点卡片</b> → 查看该站<b>整个周期</b>的逐日趋势折线（带每日数据标注与峰值光环）、每日明细表、以及该站骑手排行（可再点进单个骑手）；'+
     '以上明细均不受上方日期筛选影响；'+
     '每个板块右上角「导出图片」可把该板块保存为 PNG；顶部可上传新的运单明细 xlsx，数据在本地浏览器解析，不会上传到任何服务器。'+
+    '<br><br><b style="font-size:13px">四项考核指标（平台公式）</b>'+
+    '<br>① <b>完全妥投率</b> = 有效完单 ÷（有效完单 + 物流责未完成单 + 高笔单物流责未完成单×1 + 星巴克物流责未完成单×2 + 虚假报备出餐慢取消单 + 虚假改派吸单 + 虚假改派规避妥投单 + 提前点送达单×2）；页面展示其补数「<b>不完全妥投率</b>」。'+
+    '<br>② <b>预测T8准时率</b> =（T8准时单 − 虚假报备出餐慢取消单 − 虚假改派偷准达 − 提前点送达单×2）÷（有效完单 + 高笔单T8非准时单×1 + 星巴克非准时单×2）；T8 超时 = 超平台期望送达时长 ≥ 480 秒（8 分钟）。'+
+    '<br>③ <b>单均复合超时时长</b> = 复合超时时长合计 ÷ 剔除前有效完单（轻度 8~15 分钟 1 倍 / 普通 15~30 分钟 1.5 倍 / 严重 &gt;30 分钟 2 倍，封顶 90 分钟）。'+
+    '<br>④ <b>非时效不满意度</b> =（有效投诉单×5 + 有效差评单×5 + 有效索赔单 + 虚假报备出餐慢取消单）÷ 接单量。'+
+    '<br><b>团队占比</b>（骑手表「质量指标视图」、骑手/站点弹窗、综合评价分榜）= 该对象的<b>加权分子</b> ÷ 当前范围全部骑手的加权分子合计；'+
+    '加权系数即平台公式里的 ×2 / ×5 —— 例如有效差评按 5 单计、提前点送达按 2 单计、高笔非准时按 2 单计入 T8 分母。'+
+    '<br><b>综合评价分 = 100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100</b>；'+
+    '默认口径「团队占比」代入上面四个团队占比（<b>分低 = 该对象在团队问题中的份额大</b>，适合对象之间横向比较；'+
+    '全员合计的占比恒为 100%，故团队整体按公式恒为 15 分，该口径不适合评价整体）；'+
+    '口径「自身率值」改为代入对象自身的不完全妥投率、T8超时率、单均复合与团队均值之比、非时效不满意度，消除单量规模影响，可用于团队整体评价。'+
     '<br><b>上传要求</b>：支持两种导出格式，自动识别 ——'+
-    '① <b>新格式</b>（运单明细）：需含列 骑手id、超平台期望送达时长、运单状态；'+
-    '「是否二呼单」直接取值，「异常报备项」含「商户出货慢」即判为出餐慢；'+
-    '② <b>旧格式</b>：需含列 日期、骑手id、是否准时单（考核）、是否妥投单、是否出餐慢报备。'+
-    '两种格式都可选 骑手姓名/名称、站点名称。'+
-    '<br><b>上传时同样会剔除</b>取消单与未妥投单（新格式按「运单状态=配送成功」，旧格式按「是否妥投单=是」），'+
-    '并按运单终态日归入日期，与内置数据口径完全一致。';
+    '① <b>运单明细</b>（73 列）：需含 骑手id、运单状态、超平台期望送达时长；'+
+    '投诉取「用户投诉是否成立」、差评取「用户评价等级」（吐槽/差评/不满意）、索赔取「索赔是否成立」、'+
+    '提前点送达取「违规送达是否成立」、虚假报备出餐慢取「虚假报备是否成立」+「虚假报备项」含出餐慢、品牌取「平台商家名称」（星巴克）；'+
+    '② <b>考核明细</b>（63 列）：需含 日期、骑手id、是否妥投单、是否准时单（考核）；'+
+    '四指标取「是否投诉单 / 是否差评单 / 是否索赔单 / 是否提前点送达不满意单 / 是否虚假报备出餐慢取消单 / 是否虚假改派吸单 / 是否虚假改派规避妥投单 / 是否虚假改派偷准达 / 是否高笔单」。'+
+    '两种格式都可选 骑手姓名/名称、站点名称；数据源缺少的列一律按 0 计，页面顶部会给出提示。'+
+    '<br><b>上传时同样会剔除</b>取消单与未妥投单（运单明细按「运单状态=配送成功」，考核明细按「是否妥投单=是」）不计入单量，但<b>仍计入接单量</b>（④的分母）与<b>加权未完成单</b>（①的分母）；并按运单终态日归入日期，与内置数据口径完全一致。'+
+    '<br><b>T8 口径提示</b>：本看板 T8 超时统一按「超平台期望送达时长 ≥ 480 秒」判定，两种格式一致；与平台「是否准时单（考核）」列会有少量差异（平台另有卡餐剔除、兜底等规则）。';
   window.__parseXlsx = parseXlsx;   // 供自动化测试
 
   /* 启动：优先用内置数据（离线单文件版）；否则读本机缓存；都没有则显示空状态 */
   if(D){
+    D = normalizeData(D);
     showDash(); buildControls(); renderAll(); setStatus(dataSummary());
   } else {
     showEmpty();
     loadLocal().then(function(rec){
       if(rec && rec.data && rec.data.meta && rec.data.meta.total){
-        D = rec.data;
+        D = normalizeData(rec.data);
         showDash(); buildControls(); renderAll();
         setStatus('✅ 已从本机恢复数据（保存于 '+fmtTime(rec.savedAt)+'）：'+dataSummary());
       }
