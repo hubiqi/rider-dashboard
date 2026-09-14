@@ -91,11 +91,18 @@ tbody td:first-child{border-left:none}
 #scoreSites th:nth-child(9),#scoreSites td:nth-child(9),
 #scoreRiders th:nth-child(6),#scoreRiders td:nth-child(6),
 #scoreRiders th:nth-child(10),#scoreRiders td:nth-child(10),
-#riderTable:not(.quality) th:nth-child(7),#riderTable:not(.quality) td:nth-child(7),
-#riderTable.quality th:nth-child(8),#riderTable.quality td:nth-child(8){border-left:1px solid #d5dde8}
-#riderTable.quality th:nth-child(11),#riderTable.quality td:nth-child(11),
-#riderTable.quality th:nth-child(14),#riderTable.quality td:nth-child(14),
-#riderTable.quality th:nth-child(17),#riderTable.quality td:nth-child(17){border-left:1px solid #e3e9f1}
+/* ★ 质量视图：四个考核指标各成一组（3 列），组与组之间用粗竖线隔开
+     ★★ nth-child 是 1 起数！列序（1 起）= 1综合评价分 2综合排名 3骑手 4站点 5单量 |
+        6非妥投·加权单 7非妥投占比 8非妥投率 | 9T8·加权超时 10T8占比 11T8超时率 |
+        12复合总时长 13复合占比 14单均复合 | 15不满意·加权单 16不满意占比 17不满意
+     → 组首 = 6 / 9 / 12 / 15（改 COLS_Q 列序必须同步改这里，测试 V1 会按表头文字反查兜底） */
+#riderTable.quality th:nth-child(6),#riderTable.quality td:nth-child(6),
+#riderTable.quality th:nth-child(9),#riderTable.quality td:nth-child(9),
+#riderTable.quality th:nth-child(12),#riderTable.quality td:nth-child(12),
+#riderTable.quality th:nth-child(15),#riderTable.quality td:nth-child(15){border-left:3px solid #8fa3bd}
+/* 超时视图同样分两段：超时相关(5~7) | 复合相关(8~10) */
+#riderTable:not(.quality) th:nth-child(5),#riderTable:not(.quality) td:nth-child(5),
+#riderTable:not(.quality) th:nth-child(8),#riderTable:not(.quality) td:nth-child(8){border-left:3px solid #8fa3bd}
 th{color:var(--sub);font-weight:600;font-size:11.5px;position:sticky;top:0;background:#fff;z-index:1}
 tbody tr:hover{background:#fafbff}
 td.num,th.num{text-align:center;font-variant-numeric:tabular-nums}
@@ -359,6 +366,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=45"></script>
+<script src="core_v24.js?v=46"></script>
 </body>
 </html>
