@@ -93,8 +93,17 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .muted{color:var(--sub)}
 .legend{display:flex;gap:14px;font-size:11.5px;color:var(--sub);margin-top:8px;flex-wrap:wrap}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.stcard{display:flex;flex-direction:column;gap:8px}
+.stcard{display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:.15s}
+.stcard:hover{border-color:#c7d2fe;box-shadow:0 6px 20px rgba(37,99,235,.13);transform:translateY(-1px)}
+.stcard:active{transform:translateY(0)}
+.stcard:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .stcard .h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.stmore{font-size:11.5px;font-weight:700;color:var(--brand);margin-top:-2px}
+/* 图表横向滚动（数据点多时保持每个点的数据标注可读） */
+.chartwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.mstat{font-size:12px;color:#475467;background:#f8fafc;border:1px solid #eef1f6;border-radius:10px;
+  padding:8px 11px;margin:10px 0 2px;line-height:1.65}
+.mtabcap{font-size:12px;font-weight:700;color:#344054;margin:14px 0 6px}
 .empty{padding:30px;text-align:center;color:var(--sub)}
 svg{display:block;width:100%;height:auto;overflow:visible}
 .tip{position:fixed;pointer-events:none;background:#101828;color:#fff;font-size:11.5px;padding:6px 9px;
@@ -233,7 +242,7 @@ tr.rrow:active{background:#f2f6ff}
   </section>
 
   <section class="mod" data-name="站点维度">
-  <div class="sec-title"><span class="dot"></span>站点维度 <small>全周期对比 + 最新表现</small></div>
+  <div class="sec-title"><span class="dot"></span>站点维度 <small>全周期对比 + 最新表现 · 点卡片看整周期明细</small></div>
   <div class="grid" id="stationGrid" style="grid-template-columns:repeat(2,1fr)"></div>
   </section>
 
@@ -249,9 +258,17 @@ tr.rrow:active{background:#f2f6ff}
         <option value="1">1</option><option value="5" selected>5</option>
         <option value="10">10</option><option value="20">20</option><option value="50">50</option>
       </select>
+      <span class="muted" style="font-size:12px" title="按「超时率排名」只保留前 N%">超时率前</span>
+      <select id="rankSel" title="按超时率排名筛选">
+        <option value="0">全部</option>
+        <option value="5">5%</option>
+        <option value="10" selected>10%</option>
+        <option value="15">15%</option>
+        <option value="20">20%</option>
+      </select>
       <div class="seg" id="sortSeg">
         <button data-s="o">按超时单</button>
-        <button data-s="r">按超时率</button>
+        <button data-s="r" class="on">按超时率</button>
         <button data-s="shareO">按超时占比</button>
         <button data-s="shareS">按复合占比</button>
       </div>
@@ -282,6 +299,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=30"></script>
+<script src="core_v24.js?v=31"></script>
 </body>
 </html>
