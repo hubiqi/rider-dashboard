@@ -80,6 +80,17 @@ select,input[type=search]{border:1px solid var(--line);background:#fff;border-ra
 input[type=search]{min-width:120px}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
 th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+/* 竖向分割：每列之间一条细线，分组边界（占比列 / 得分列）用稍深的线分隔 */
+th+th,td+td{border-left:1px solid #edf1f6}
+tbody td:first-child{border-left:none}
+#scoreSites th:nth-child(5),#scoreSites td:nth-child(5),
+#scoreSites th:nth-child(9),#scoreSites td:nth-child(9),
+#scoreRiders th:nth-child(6),#scoreRiders td:nth-child(6),
+#scoreRiders th:nth-child(10),#scoreRiders td:nth-child(10),
+#riderTable th:nth-child(7),#riderTable td:nth-child(7){border-left:1px solid #d5dde8}
+#riderTable.quality th:nth-child(10),#riderTable.quality td:nth-child(10),
+#riderTable.quality th:nth-child(13),#riderTable.quality td:nth-child(13),
+#riderTable.quality th:nth-child(16),#riderTable.quality td:nth-child(16){border-left:1px solid #e3e9f1}
 th{color:var(--sub);font-weight:600;font-size:11.5px;position:sticky;top:0;background:#fff;z-index:1}
 tbody tr:hover{background:#fafbff}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
@@ -247,9 +258,9 @@ tr.rrow:active{background:#f2f6ff}
       </div>
     </div>
     <div id="scoreTeam"></div>
-    <div class="mtabcap" style="margin-top:10px">🏢 站点排行 <span style="font-weight:400;color:#98a2b3">按综合分升序，分低＝占团队问题比重更大（不受单量规模影响）· 四列「占比」即计分代入值</span></div>
+    <div class="mtabcap" style="margin-top:10px">🏢 站点排行 <span style="font-weight:400;color:#98a2b3">按综合分升序，分低＝占团队问题比重更大（不受单量规模影响）· 四列「占比」= 计分代入值（站点不放大）→ 可直接复算综合分</span></div>
     <div id="scoreSites"></div>
-    <div class="mtabcap">👥 骑手两端 <span style="font-weight:400;color:#98a2b3">综合分最低 8 名 / 最高 8 名（由低到高排列）· 四列「占比」为<b>放大后（× 骑手人数 × 0.1）</b>的计分值，可直接复算综合分 · 点行看逐日明细</span></div>
+    <div class="mtabcap">👥 骑手两端 <span style="font-weight:400;color:#98a2b3">综合分最低 8 名 / 最高 8 名（由低到高排列）· 四列「占比」= <b>团队占比原式</b>（该骑手占团队该项问题量的份额，合计恒 100%）；<b>放大只用于计分</b>，悬停行可见放大后的代入值 · 点行看逐日明细</span></div>
     <div id="scoreRiders"></div>
     <div class="note" id="scoreNote"></div>
   </div>
@@ -339,6 +350,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=41"></script>
+<script src="core_v24.js?v=42"></script>
 </body>
 </html>
