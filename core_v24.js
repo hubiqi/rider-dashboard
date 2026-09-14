@@ -66,7 +66,7 @@
       t8Loss:t8Loss, t8Den:t8Den, t8Num:t8Num, t8hi:t8hi,
       t8R: t8Den? t8Num/t8Den*100 : 0,                           // 预测T8准时率 %
       t8Late: t8Den? t8Loss/t8Den*100 : 0,                       // T8超时率 %
-      satW:satW, satR: acc? satW/acc*100 : 0,                    // 非时效不满意度 %
+      satW:satW, satR: acc? satW/acc*100 : 0,                    // 不满意（平台原名：非时效不满意度）%
       avgComp: t? comp/t : 0,
       cmpl:v[F.cmpl]||0, bad:v[F.bad]||0, claim:v[F.claim]||0, early:v[F.early]||0,
       fakeCan:v[F.fakeCan]||0, fakeGrab:v[F.fakeGrab]||0, fakeT8:v[F.fakeT8]||0, hi:v[F.hi]||0,
@@ -79,7 +79,7 @@
       s1: T && T.missAdd ? m.missAdd/T.missAdd*100 : 0,          // 非妥投
       s2: T && T.t8Loss  ? m.t8Loss/T.t8Loss*100 : 0,            // T8超时（加权含高笔/虚假/提前点送达×2）
       s3: T && T.s       ? m.s/T.s*100 : 0,                      // 复合时长
-      s4: T && T.satW    ? m.satW/T.satW*100 : 0                 // 非时效不满意（含×5加权）
+      s4: T && T.satW    ? m.satW/T.satW*100 : 0                 // 不满意（含×5加权）
     };
   }
   /* 综合评价分 = 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100
@@ -962,7 +962,7 @@
        否则提示里会把率值再除一次（"非妥投率 0.06% → ×18.6 = 1.12%"这种假数据）。 */
     var amp = (md === 'rate') ? 1 : ((ctx && ctx.amp) ? ctx.amp : 1);
     var lab = md==='rate' ? ['非妥投率','T8超时率','单均复合÷团队均值','不满意']
-                          : ['非妥投占比','T8占比','复合占比','非时效占比'];
+                          : ['非妥投占比','T8占比','复合占比','不满意占比'];
     return { r1:r[0], r2:r[1], r3:r[2], r4:r[3],
              raw1:raw[0]/amp, raw2:raw[1]/amp, raw3:raw[2]/amp, raw4:raw[3]/amp,
              pre1:raw[0], pre2:raw[1], pre3:raw[2], pre4:raw[3], amp:amp, lab:lab };
@@ -1048,7 +1048,7 @@
     var cd = [0,1,2,3].map(function(i){ return rows.reduce(function(a,b){ return a+b.d[i]*b.t/tt }, 0) });
     var head = '<tr><th>站点</th><th class="num">单量</th><th class="num">单量占比</th>'+
       '<th class="num">①非妥投扣分</th><th class="num">②T8扣分</th><th class="num">③复合扣分</th>'+
-      '<th class="num">④非时效扣分</th><th class="num">扣分合计</th><th class="num">占团队扣分</th></tr>';
+      '<th class="num">④不满意扣分</th><th class="num">扣分合计</th><th class="num">占团队扣分</th></tr>';
     var body = rows.slice().sort(function(a,b){ return b.sum-a.sum }).map(function(r){
       return '<tr><td style="font-weight:600">'+esc(r.st.replace('福州',''))+'</td>'+
         '<td class="num">'+r.t+'</td><td class="num">'+pct(r.vp)+'</td>'+
@@ -1096,10 +1096,10 @@
 
     var head = '<tr><th>名次</th><th>对象</th><th>站点</th><th class="num">单量</th>'+
       '<th class="num">综合分</th><th class="num">①非妥投占比</th><th class="num">②T8占比</th>'+
-      '<th class="num">③复合占比</th><th class="num">④非时效占比</th><th>得分</th></tr>';
+      '<th class="num">③复合占比</th><th class="num">④不满意占比</th><th>得分</th></tr>';
     var headSt = '<tr><th>名次</th><th>站点</th><th class="num">单量</th><th class="num">综合分</th>'+
       '<th class="num">①非妥投占比</th><th class="num">②T8占比</th><th class="num">③复合占比</th>'+
-      '<th class="num">④非时效占比</th><th>得分</th></tr>';
+      '<th class="num">④不满意占比</th><th>得分</th></tr>';
     var best  = rdArr.slice(0, 8);                        // 分最高（rdArr 已按综合分降序）
     var worst = rdArr.slice(-8).reverse();                 // 分最低（转成由低到高，第 1 行 = 最差）
     var overlap = rdArr.length <= worst.length + best.length;   // 骑手太少时两端会重复 → 只列一次
@@ -1236,8 +1236,8 @@
     { k:'s',      lab:'复合总时长',  num:true },
     { k:'s3',     lab:'复合占比',    num:true },
     { k:'avgComp',lab:'单均复合',    num:true },
-    { k:'satW',   lab:'非时效·加权单', num:true },
-    { k:'s4',     lab:'非时效占比',  num:true },
+    { k:'satW',   lab:'不满意·加权单', num:true },
+    { k:'s4',     lab:'不满意占比',  num:true },
     { k:'satR',   lab:'不满意',      num:true }
   ];
   function COLS(){ return view==='quality' ? COLS_Q : COLS_T }
@@ -1337,7 +1337,7 @@
           '<td class="num" style="color:#be185d;font-weight:600">'+pct(x.t8Late)+'</td>'+
           '<td class="num">'+Math.round(x.s)+'</td>'+
           '<td class="num">'+pct(x.s3)+'</td>'+
-          '<td class="num">'+fmt(x.avgComp,1)+'<span class="muted"> s</span></td>'+
+          '<td class="num" style="color:#7c3aed;font-weight:600">'+fmt(x.avgComp,1)+'<span class="muted"> s</span></td>'+
           '<td class="num">'+Math.round(x.satW)+'</td>'+
           '<td class="num">'+pct(x.s4)+'</td>'+
           '<td class="num" style="color:#d97706;font-weight:600">'+pct(x.satR)+'</td></tr>';
@@ -1357,13 +1357,13 @@
           '<td class="num">'+pct(x.shareO)+'</td>'+
           '<td class="num">'+Math.round(x.s)+'</td>'+
           '<td class="num">'+pct(x.shareS)+'</td>'+
-          '<td class="num">'+fmt(x.c,1)+'<span class="muted"> s</span></td></tr>';
+          '<td class="num" style="color:#7c3aed;font-weight:600">'+fmt(x.c,1)+'<span class="muted"> s</span></td></tr>';
       }).join('');
     }
     var sortLab = view==='quality'
       ? { score:'综合评价分', idx:'综合排名', n:'骑手', st:'站点', t:'单量', missAdd:'非妥投加权单', s1:'非妥投占比（团队原式）', missR:'非妥投率',
           t8W:'T8加权超时单', s2:'T8占比（团队原式）', t8Late:'T8超时率', s:'复合总时长', s3:'复合占比（团队原式）', avgComp:'单均复合',
-          satW:'非时效加权单', s4:'非时效占比（团队原式）', satR:'不满意' }
+          satW:'不满意加权单', s4:'不满意占比（团队原式）', satR:'不满意' }
       : { idx:'排名', n:'骑手', st:'站点', t:'单量', o:'超时单', r:'超时率', shareO:'超时占比', s:'复合总时长', shareS:'复合占比', c:'单均复合' };
     // ★ rankTxt 必须写在 sortLab 之后：var 提升会让 sortLab[k] 在赋值前取到 undefined 而抛错，
     //   那样本函数后续（说明文案）会静默跳过，表现为「说明永远停在初始状态」
@@ -1377,7 +1377,7 @@
       '排序：'+(sortLab[k]||k)+(dir>0?' ↑ 升序':' ↓ 降序')+
       (view==='quality' && k==='score' && dir>0 ? '（默认：综合分低 → 高，最差在前）' : '')+
       ' · 占比分母=当前范围全部骑手（未完成加权 '+Math.round(T.missAdd)+' · T8加权超时 '+Math.round(T.t8Loss)+
-      ' · 复合合计 '+Math.round(T.s)+'s · 非时效加权 '+Math.round(T.satW)+'）'+
+      ' · 复合合计 '+Math.round(T.s)+'s · 不满意加权 '+Math.round(T.satW)+'）'+
       (view==='quality' ? '<br>综合评价分口径：<b>'+SMODE_LAB[scoreMode]+'</b> —— 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100；'+
         '四个「占比」列 = <b>团队占比·原式</b>（该骑手该项问题量 ÷ 团队合计，是 100% 份额的信息列，<b>不放大</b>）；'+
         '<b>放大只用于计分</b>（×'+fmt(ctx.amp,2)+' 后代入公式），所以列值不能直接复算综合分' : '');
@@ -1490,7 +1490,7 @@
     var mc = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
     return '<div class="mtabcap">🧮 四项考核指标 <span style="font-weight:400;color:#98a2b3">'+
       '加权未完成 '+Math.round(m.missAdd)+' 单 · 加权超时 '+Math.round(m.t8Loss)+' 单 · 复合合计 '+Math.round(m.s)+
-      's · 非时效加权 '+Math.round(m.satW)+' 单</span></div>'+
+      's · 不满意加权 '+Math.round(m.satW)+' 单</span></div>'+
       '<div class="mgrid">'+
         mc('综合评价分', '<span style="color:'+col+'">'+fmt(sc,1)+'</span>') +
         mc('① 完全妥投率', pct(m.fullR)) +
@@ -1502,7 +1502,7 @@
         mc('③ 单均复合时长', fmt(m.avgComp,1)+'s') +
         mc('③ 复合时长 <em>团队占比 '+pct(sh.s3)+'</em>', Math.round(m.s)+'s') +
         mc('④ 不满意', pct(m.satR)) +
-        mc('④ 非时效加权单 <em>团队占比 '+pct(sh.s4)+'</em>', Math.round(m.satW)) +
+        mc('④ 不满意加权单 <em>团队占比 '+pct(sh.s4)+'</em>', Math.round(m.satW)) +
         mc('接单量 / 有效完单', m.acc+' / '+m.t) +
       '</div>';
   }
