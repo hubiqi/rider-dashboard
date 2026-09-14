@@ -100,22 +100,27 @@
     return [S.s1 ? (m.missR/100)/S.s1*amp : 0, S.s2 ? (m.t8Late/100)/S.s2*amp : 0,
             S.s3 ? cr/S.s3*amp : 0,            S.s4 ? (m.satR/100)/S.s4*amp : 0];
   }
-  /* ★ 占比不可能超过 100%：放大后封顶，避免个别骑手在某项上出现 5286% 这种无意义的「占比」
-     （站点占比只有 16%~40%，永远碰不到上限 → 站点评分与团队扣分汇总完全不受影响） */
+  /* ★ 无单项封顶（v39）：占比多大就是多大，任何一项都**不设上限**。
+     骑手层级 ×100 放大后，个别骑手某项占比可达 1500%（妥投）/ 5286%（非时效）——
+     这是真实差距，不再压成 100%。代价：净扣分合计可以超过 100 分，综合分夹到 0（只夹总分，不夹单项）。
+     站点层级占比只有 16%~42%，本来就用不到上限 → 站点分与团队扣分汇总不受此改动影响。 */
   function ratioOf(m, ctx, mode){
-    var r = ratioRaw(m, ctx, mode);
-    if((mode || scoreMode) === 'rate') return r;
-    return r.map(function(v){ return v > 1 ? 1 : v });
+    return ratioRaw(m, ctx, mode);
   }
-  /* 四项占比 + 综合分（100 − 四项扣分之和） */
+  /* 四项占比 + 综合分（100 − 四项扣分之和，只在总分上夹 0~100） */
   function scoreOf(m, ctx, mode){
     var r = ratioOf(m, ctx, mode);
     return Math.max(0, Math.min(100, 100 - (0.2*r[0] + 0.3*r[1] + 0.15*r[2] + 0.2*r[3])*100));
   }
-  /* 单项扣分（分）= 权重 × 占比 × 100，四项之和 = 100 − 综合分 */
+  /* 单项扣分（分）= 权重 × 占比 × 100，四项之和 = 100 − 综合分（不封顶，可为负） */
   function deductOf(m, ctx, mode){
     var r = ratioOf(m, ctx, mode);
     return [0.2*r[0]*100, 0.3*r[1]*100, 0.15*r[2]*100, 0.2*r[3]*100];
+  }
+  /* 净扣分合计（不夹 0）：多个骑手综合分同为 0 时，用它区分谁更差 */
+  function sumDeduct(m, ctx, mode){
+    var d = deductOf(m, ctx, mode);
+    return d[0]+d[1]+d[2]+d[3];
   }
   /* 计分上下文：团队基准 T（占比分母）· S（各项率值合计）· D（各项扣分合计，供团队汇总）· amp（层级放大）
      ★ 站点与骑手必须各自建上下文：站点是几十人的聚合，率值量级与单个骑手不同 */
@@ -866,7 +871,7 @@
     var amps = a.amp !== 1;
     var line = function(k, lab, raw, pre, cur, w){
       return k+' '+lab+' '+fmt(raw*100,2)+'%'+
-        (amps ? ' → ×'+a.amp+' = '+fmt(pre*100,2)+'%'+(pre>1?' → 封顶 100%':'') : '')+
+        (amps ? ' → ×'+a.amp+' = '+fmt(pre*100,2)+'%'+(pre>1?'（>100%，不封顶）':'') : '')+
         ' × '+w+' = '+fmt(cur*w*100,2)+' 分\n';
     };
     var tip = '扣分拆解（'+SMODE_LAB[scoreMode]+' × 权重 × 100）'+(amps ? '　★ '+ctx.level+' 层级占比 ×'+a.amp : '')+'\n'+
@@ -875,7 +880,7 @@
       line('③', a.lab[2], a.raw3, a.pre3, a.r3, 0.15)+
       line('④', a.lab[3], a.raw4, a.pre4, a.r4, 0.2)+
       '合计扣 '+fmt((d[0]+d[1]+d[2]+d[3])*100,2)+' 分 → 综合分 '+fmt(sc,2)+
-      (amps ? '\n（骑手层级占比被人数稀释，按面板口径 ×'+a.amp+' 放大后参与计分；占比封顶 100%）' : '');
+      (amps ? '\n（骑手层级占比被人数稀释，按面板口径 ×'+a.amp+' 放大后参与计分；各单项占比均不封顶）' : '');
     return '<tr title="'+escA(tip)+'"'+(x.ri!==undefined?' class="rrow" data-ri="'+x.ri+'"':'')+'>'+
       '<td><span class="rank'+(i<3?' t'+(i+1):'')+'">'+(i+1)+'</span></td>'+
       '<td style="font-weight:600">'+esc(showName)+'</td>'+
@@ -928,8 +933,11 @@
     var ctxS = scoreCtx(sel, dts, 'station'), ctxR = scoreCtx(sel, dts), T = ctxR.T;
     var stArr = byStation(sel, dts).filter(function(x){ return x.t>0 });
     var rdArr = byRider(sel, dts).filter(function(x){ return x.t>=scope.min });
-    stArr.forEach(function(x){ x._sc = scoreOf(x, ctxS) });
-    rdArr.forEach(function(x){ x._sc = scoreOf(x, ctxR) });
+    stArr.forEach(function(x){ x._sc = scoreOf(x, ctxS); x._ded = sumDeduct(x, ctxS) });
+    rdArr.forEach(function(x){ x._sc = scoreOf(x, ctxR); x._ded = sumDeduct(x, ctxR) });
+    /* 综合分同为 0（单项不封顶导致扣分合计>100）时，用净扣分从轻到重排，保证名次不并列、最差者最后 */
+    var byScore = function(a,b){ return (b._sc-a._sc) || (a._ded-b._ded) };
+    var zeroN = rdArr.filter(function(x){ return x._sc <= 0.0001 }).length;
     [stArr, rdArr].forEach(function(arr){
       arr.forEach(function(x){
         var sh = sharesOf(x, T);
@@ -937,7 +945,7 @@
       });
     });
     stArr.sort(function(a,b){ return a._sc-b._sc });
-    rdArr.sort(function(a,b){ return b._sc-a._sc });
+    rdArr.sort(byScore);
 
     var head = '<tr><th>名次</th><th>对象</th><th>站点</th><th class="num">单量</th>'+
       '<th class="num">综合分</th><th class="num">妥投占比</th><th class="num">T8占比</th>'+
@@ -971,8 +979,11 @@
           '不受单量规模影响。'+
           '<br>★ <b>层级放大</b>：占比分母是团队全员合计，同一层级对象越多、单个占比越小 —— 站点层级只有 '+stArr.length+
           ' 个对象、占比量级正常，直接代入；骑手层级 '+ctxR.n+' 人，人均占比仅 ~'+fmt(100/Math.max(1,ctxR.n),2)+
-          '%，按面板口径 <b>×'+LEVEL_AMP.rider+'</b> 放大后代入（占比封顶 100%），否则全场挤在 97~100 没有区分度。'+
-          '该放大<b>只作用于骑手</b>，站点分与团队扣分汇总不受影响。'
+          '%，按面板口径 <b>×'+LEVEL_AMP.rider+'</b> 放大后代入（占比<b>不封顶</b>，个别骑手单项可超 100%），否则全场挤在 97~100 没有区分度。'+
+          '该放大<b>只作用于骑手</b>，站点分与团队扣分汇总不受影响。'+
+          (zeroN ? '<br>★ 本范围有 <b>'+zeroN+'</b> 名骑手（'+fmt(zeroN/Math.max(1,rdArr.length)*100,1)+'%）四项扣分合计已超 100 分（单项不封顶所致）→ 综合分夹在 <b>0</b>；'+
+            '同分者按「净扣分」从轻到重排列，名次不并列。'+
+            (zeroN*4 >= rdArr.length ? '<br>⚠️ <b>触顶人数偏多</b>：占比的分母是团队全员合计，参与计分的人越少、单人占比就越大 —— 当前只有 '+rdArr.length+' 人，×'+LEVEL_AMP.rider+' 放大后大量骑手越过 100 分，建议先切「自身率值」口径对照。' : '') : '')
         : '各指标用<b>团队占比原值</b>（该对象加权分子 ÷ 团队加权分子合计）直接代入 —— 这是原式。'+
           '⚠️ 占比随<b>单量</b>增长（加权分子 ≈ 单量 × 率值），所以订单多的站点/骑手占比自然高、分数被拉低；'+
           '骑手层级同样按 <b>×'+LEVEL_AMP.rider+'</b> 放大后代入。')+
@@ -1093,6 +1104,7 @@
       // —— 四个指标的加权分子与团队占比（加权系数取自平台口径）——
       x.t8W  = x.t8Loss;
       x.score = scoreOf(x, ctx);
+      x._ded  = sumDeduct(x, ctx);        // 净扣分（不封顶）——综合分并列时用于区分名次
       var sh = sharesOf(x, T);
       x.s1 = sh.s1; x.s2 = sh.s2; x.s3 = sh.s3; x.s4 = sh.s4;
     });
@@ -1104,14 +1116,14 @@
     // ② 全池名次（仅用于悬停提示）：超时率名次 / 综合分名次
     pool.slice().sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) })
         .forEach(function(x,i){ x.poolRk = i+1 });
-    pool.slice().sort(function(a,b){ return (b.score-a.score) || (b.t-a.t) })
+    pool.slice().sort(function(a,b){ return (b.score-a.score) || (a._ded-b._ded) || (b.t-a.t) })
         .forEach(function(x,i){ x.poolSrk = i+1 });
     // ③ 排序比较器 = 当前排序维度（点表头 / 排序按钮可切换）
     var k = sortKey, dir = sortDir;
     var cmp = function(a,b){
       var va = a[k], vb = b[k];
       if(typeof va === 'string') return va.localeCompare(vb) * dir;
-      if(va===vb) return (b.o-a.o) || (b.t-a.t);
+      if(va===vb) return (k==='score' ? (a._ded-b._ded) : 0) || (b.o-a.o) || (b.t-a.t);
       return (va-vb) * dir;
     };
     // ④ 排名筛选：按「当前排序维度」排序后取前 N%，
@@ -1135,8 +1147,8 @@
     list.slice().sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) })
         .forEach(function(x,i){ x.rk = i+1 });
     /* ★ srk 的并列顺序必须与展示排序（cmp）一致，否则同分的骑手在行序与名次序里会错位，
-       名次列会出现 1,2,3,5,4 这种跳号（占比封顶后同分变多，v37 实测踩到）。 */
-    list.slice().sort(function(a,b){ return (b.score-a.score) || (b.o-a.o) || (b.t-a.t) })
+       名次列会出现 1,2,3,5,4 这种跳号（综合分同为 0 时最容易踩到，v37 / v39 实测）。 */
+    list.slice().sort(function(a,b){ return (b.score-a.score) || (a._ded-b._ded) || (b.o-a.o) || (b.t-a.t) })
         .forEach(function(x,i){ x.srk = i+1 });
     // ⑥ 按当前排序方式展示
     list.sort(cmp);
@@ -2075,9 +2087,13 @@
     '默认口径 <b>「按占比」</b>= 该对象各项扣分 ÷ 全体同类对象该项扣分之和（各项扣分先对全体求和、再算占比）—— '+
     '不受单量规模影响，订单多的站点不会因为「问题量天然多」被拉低。悬停榜单任意一行可看<b>扣分拆解</b>（每项「占比 × 权重 × 100 = 扣分」）。'+
     '<br>★ <b>层级放大</b>：占比的分母是团队全员合计，同一层级对象越多、单个占比越小 —— '+
-    '站点层级只有几个对象（占比 16%~34%，量级正常）→ 原始占比直接代入；'+
+    '站点层级只有几个对象（占比 16%~42%，量级正常）→ 原始占比直接代入；'+
     '骑手层级有一两百人（人均占比仅 ~0.5%）→ <b>×'+LEVEL_AMP.rider+'</b> 放大后代入，否则全场挤在 97~100 没有区分度。'+
     '该放大<b>只作用于骑手</b>，站点分与团队扣分汇总不受影响。'+
+    '<br>★ <b>各单项扣分均不封顶</b>：占比算出来多大就是多大（骑手 ×'+LEVEL_AMP.rider+' 放大后，个别骑手单项可达 1500%、5000%+），'+
+    '不加 100% 上限，避免把「贡献了团队一半以上问题量」和「刚好占满 1%」压成同一个数。'+
+    '因此四项扣分合计<b>可以超过 100 分</b>，此时综合分夹在 <b>0</b>（只夹总分，不夹单项），'+
+    '同为 0 分的骑手按「净扣分」从轻到重排名次，不会并列。'+
     '另两档口径：「<b>团队占比·原式</b>」= 该对象加权分子 ÷ 团队加权分子合计（占比 ≈ 单量 × 率值，大站必然偏高，仅作对照）；'+
     '「<b>自身率值</b>」= ①不完全妥投率 ②T8超时率 ③单均复合÷团队均值（封顶 2）④非时效不满意度，完全与单量无关。'+
     '<br><b>团队综合分</b>（综合评价分板块的「团队扣分汇总」）= 各站点「扣分合计」按<b>单量占比</b>加权求和得到团队扣分，再取 100 − 团队扣分；'+
