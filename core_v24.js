@@ -2167,6 +2167,7 @@
     loadLocal().then(function(rec){
       if(rec && rec.data && rec.data.meta && rec.data.meta.total){
         D = normalizeData(rec.data);
+        buildSortSeg();          // ★ 排序按钮按当前视图生成，恢复数据这条路径也必须建一次
         showDash(); buildControls(); renderAll();
         setStatus('✅ 已从本机恢复数据（保存于 '+fmtTime(rec.savedAt)+'）：'+dataSummary());
       }
