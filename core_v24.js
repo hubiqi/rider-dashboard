@@ -767,7 +767,7 @@
   var SORT_BTNS = {
     quality: [['score','按综合分'], ['missR','按非妥投率'], ['t8Late','按T8超时率'],
               ['avgComp','按单均复合'], ['satR','按不满意']],
-    timeout: [['o','按超时单'], ['r','按超时率'], ['shareO','按超时占比'],
+    timeout: [['o','按超时单'], ['r','按超时率'], ['shareO','按超时单占比'],
               ['shareS','按复合占比'], ['score','按综合分']]
   };
   function buildSortSeg(){
@@ -1214,7 +1214,10 @@
     { k:'t',      lab:'单量',        num:true },
     { k:'o',      lab:'超时单',      num:true },
     { k:'r',      lab:'超时率',      num:true },
-    { k:'shareO', lab:'超时占比',    num:true },
+    { k:'shareO', lab:'超时单占比',  num:true,
+      tip:'该骑手【原始超时单】÷ 当前范围全部骑手的原始超时单（与左侧「超时单」「超时率」同口径，只数原始超时单）。'+
+          '\n注意：与质量指标视图里的「T8占比」不是同一口径 —— 那边用的是加权超时（含高笔、虚假报备、虚假改派、提前点送达×2），'+
+          '所以两个视图这一格的数值天然不同。' },
     { k:'s',      lab:'复合总时长',  num:true },
     { k:'shareS', lab:'复合占比',    num:true },
     { k:'c',      lab:'单均复合',num:true }
@@ -1231,7 +1234,10 @@
     { k:'s1',     lab:'非妥投占比',    num:true },
     { k:'missR',  lab:'非妥投率',      num:true },
     { k:'t8W',    lab:'T8·加权超时', num:true },
-    { k:'s2',     lab:'T8占比',      num:true },
+    { k:'s2',     lab:'T8占比',      num:true,
+      tip:'该骑手【加权超时】÷ 全体骑手的加权超时（团队占比·原式，四项各自合计恒 100%）。'+
+          '\n加权超时 = 超时单 + 高笔T8非准时 + 虚假报备出餐慢取消 + 虚假改派偷准达 + 提前点送达×2 —— 即计分口径（②项）。'+
+          '\n与超时视图的「超时单占比」不同：那个只数原始超时单，不含任何加权与虚假件。' },
     { k:'t8Late', lab:'T8超时率',    num:true },
     { k:'s',      lab:'复合总时长',  num:true },
     { k:'s3',     lab:'复合占比',    num:true },
@@ -1308,7 +1314,8 @@
       if(c.num) cls.push('num');
       if(c.sortable!==false) cls.push('sorth');
       if(active) cls.push('on');
-      return '<th'+(cls.length?' class="'+cls.join(' ')+'"':'')+(c.sortable===false?'':' data-k="'+c.k+'"')+'>'+c.lab+'<span class="arrow">'+arrow+'</span></th>';
+      return '<th'+(cls.length?' class="'+cls.join(' ')+'"':'')+(c.sortable===false?'':' data-k="'+c.k+'"')+
+        (c.tip?' title="'+escA(c.tip)+'"':'')+'>'+c.lab+'<span class="arrow">'+arrow+'</span></th>';
     }).join('') + '</tr>';
     $('#riderTable').querySelector('thead').innerHTML = thead;
     $('#riderTable').className = (view === 'quality') ? 'quality' : '';   // 竖向分割线的分组位置随视图变化
@@ -1364,7 +1371,7 @@
       ? { score:'综合评价分', idx:'综合排名', n:'骑手', st:'站点', t:'单量', missAdd:'非妥投加权单', s1:'非妥投占比（团队原式）', missR:'非妥投率',
           t8W:'T8加权超时单', s2:'T8占比（团队原式）', t8Late:'T8超时率', s:'复合总时长', s3:'复合占比（团队原式）', avgComp:'单均复合',
           satW:'不满意加权单', s4:'不满意占比（团队原式）', satR:'不满意' }
-      : { idx:'排名', n:'骑手', st:'站点', t:'单量', o:'超时单', r:'超时率', shareO:'超时占比', s:'复合总时长', shareS:'复合占比', c:'单均复合' };
+      : { idx:'排名', n:'骑手', st:'站点', t:'单量', o:'超时单', r:'超时率', shareO:'超时单占比', s:'复合总时长', shareS:'复合占比', c:'单均复合' };
     // ★ rankTxt 必须写在 sortLab 之后：var 提升会让 sortLab[k] 在赋值前取到 undefined 而抛错，
     //   那样本函数后续（说明文案）会静默跳过，表现为「说明永远停在初始状态」
     var rankTxt = scope.rank>0
@@ -1376,6 +1383,14 @@
       '筛选：最少单量 ≥ '+scope.min+' · '+rankTxt+' · 实际展示 <b>'+list.length+'</b> 名 · '+
       '排序：'+(sortLab[k]||k)+(dir>0?' ↑ 升序':' ↓ 降序')+
       (view==='quality' && k==='score' && dir>0 ? '（默认：综合分低 → 高，最差在前）' : '')+
+      (view==='quality'
+        ? '<br>本视图四个「占比」= 团队占比·原式；其中「T8占比」用的是<b>加权超时</b>（含高笔/虚假报备/虚假改派/提前点送达×2），'+
+          '与超时视图的「超时单占比」（只数原始超时单）<b>口径不同</b>，数值不一样是正常的。'+
+          '团队基准：未完成加权 '+Math.round(T.missAdd)+' · T8加权超时 '+Math.round(T.t8Loss)+
+          ' · 复合 '+Math.round(T.s)+'s · 不满意加权 '+Math.round(T.satW)
+        : '<br>本视图「超时单占比」= 只数<b>原始超时单</b>的份额（与「超时单」「超时率」同口径）；'+
+          '质量指标视图里的「T8占比」用的是<b>加权超时</b>口径，两者<b>不是同一个指标</b>，数值不同属正常。'+
+          '「复合占比」两视图口径一致。')+
       ' · 占比分母=当前范围全部骑手（未完成加权 '+Math.round(T.missAdd)+' · T8加权超时 '+Math.round(T.t8Loss)+
       ' · 复合合计 '+Math.round(T.s)+'s · 不满意加权 '+Math.round(T.satW)+'）'+
       (view==='quality' ? '<br>综合评价分口径：<b>'+SMODE_LAB[scoreMode]+'</b> —— 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100；'+
