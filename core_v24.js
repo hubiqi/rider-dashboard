@@ -10,7 +10,8 @@
   var sortKey = 'r', sortDir = -1;       // 默认按「超时率」降序（与排名筛选口径一致）
   var metric = 'rate';
   var view = 'timeout';                  // timeout=超时视图 · quality=质量指标视图
-  var scoreMode = 'norm';                // norm=团队占比放大到 0~1（默认） · share=团队占比原值 · rate=自身率值
+  var scoreMode = 'rate';                // rate=自身率值（默认） · tx=扣分占比 · share=团队占比原式
+  var SMODE_LAB = { rate:'自身率值（默认）', tx:'扣分占比（各对象扣分求和后占比）', share:'团队占比·原式' };
 
   /* ================= 指标计算内核 =================
      每组 15 个字段（渲染端约定，见 F）：
@@ -72,47 +73,53 @@
       s4: T && T.satW    ? m.satW/T.satW*100 : 0                 // 非时效不满意（含×5加权）
     };
   }
-  /* 综合评价分 = 100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100
-     ★ 占比必须先「放大」到 0~1，公式里的 0.2/0.3/0.15/0.2 才有意义：
-        团队占比的原值只有 ~0.5%（187 个人的份额加起来才是 100%），直接代入的话
-        任何人的扣分都不到 4 分 → 全场 96~100 分，完全没有区分度。
-     三种口径：
-        norm （默认）= 团队占比 ÷ 团队内该指标最大占比 → 0~1（团队内最差者 = 1）
-        share        = 团队占比原值（0~0.04）直接代入 → 忠实原式，但分数会挤在 96~100
-        rate         = 换成对象自身率值（消除单量规模影响） */
-  function scoreOf(m, ctx){
-    var T = ctx.T, mx = ctx.mx || {};
-    if(scoreMode === 'rate'){
-      var c = T.avgComp ? Math.min(m.avgComp/T.avgComp, 2) : 0;
-      var sc = 100 - (0.2*m.missR/100 + 0.3*m.t8Late/100 + 0.15*c + 0.2*m.satR/100)*100;
-      return Math.max(0, Math.min(100, sc));
-    }
-    var r1, r2, r3, r4;
-    if(scoreMode === 'share'){
+  /* 综合评价分 = 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100
+     ①②③④ = 四项指标的「占比（0~1）」，三档口径：
+       rate （默认）= 对象自身率值：不完全妥投率、T8超时率、单均复合÷团队均值、非时效不满意度
+                      —— 与单量规模无关，单量大的站点/骑手不会因为「问题量天然多」而被拉低
+       tx           = 该对象各项扣分 ÷ 全体同类对象该项扣分之和（各扣分对所有对象求和后算占比）
+       share        = 该对象加权分子 ÷ 团队加权分子合计（原式；占比随单量增长，大站必然偏高）
+     ★ 已废弃的 norm（团队占比 ÷ 团队内最大占比）：分母是「谁的加权问题量最大」，
+       而加权问题量 ≈ 单量 × 率值 —— 单量大的对象占比必然接近 1，会被一律打成最差。 */
+  function ratioOf(m, ctx, mode){
+    m = m || {}; var T = ctx.T || {}; mode = mode || scoreMode;
+    if(mode === 'share'){
       var sh = sharesOf(m, T);
-      r1 = sh.s1/100; r2 = sh.s2/100; r3 = sh.s3/100; r4 = sh.s4/100;
-    } else {
-      r1 = mx.missAdd ? m.missAdd/mx.missAdd : 0;
-      r2 = mx.t8Loss  ? m.t8Loss/mx.t8Loss  : 0;
-      r3 = mx.comp    ? m.s/mx.comp         : 0;
-      r4 = mx.satW    ? m.satW/mx.satW      : 0;
+      return [sh.s1/100, sh.s2/100, sh.s3/100, sh.s4/100];
     }
-    var s = 100 - (0.2*r1 + 0.3*r2 + 0.15*r3 + 0.2*r4)*100;
-    return Math.max(0, Math.min(100, s));
+    var cr = T.avgComp ? Math.min(m.avgComp/T.avgComp, 2) : 0;
+    if(mode === 'tx'){
+      var S = ctx.S || {};
+      return [S.s1 ? (m.missR/100)/S.s1 : 0, S.s2 ? (m.t8Late/100)/S.s2 : 0,
+              S.s3 ? cr/S.s3 : 0,            S.s4 ? (m.satR/100)/S.s4 : 0];
+    }
+    return [m.missR/100, m.t8Late/100, cr, m.satR/100];
   }
-  /* 计分上下文：团队基准 T（占比分母）+ 放大基准 mx（同层级对象里的最大值）
-     ★ 必须按层级分别取基准：站点是几十人的聚合，拿「单个骑手」的最大值去放大会必然 >1 被打成 0 分 */
+  /* 四项占比 + 综合分（100 − 四项扣分之和） */
+  function scoreOf(m, ctx, mode){
+    var r = ratioOf(m, ctx, mode);
+    return Math.max(0, Math.min(100, 100 - (0.2*r[0] + 0.3*r[1] + 0.15*r[2] + 0.2*r[3])*100));
+  }
+  /* 单项扣分（分）= 权重 × 占比 × 100，四项之和 = 100 − 综合分 */
+  function deductOf(m, ctx, mode){
+    var r = ratioOf(m, ctx, mode);
+    return [0.2*r[0]*100, 0.3*r[1]*100, 0.15*r[2]*100, 0.2*r[3]*100];
+  }
+  /* 计分上下文：团队基准 T（占比分母）· S（各项率值合计，供 tx 口径）· D（各项扣分合计，供团队汇总）
+     ★ 站点与骑手必须各自建上下文：站点是几十人的聚合，率值量级与单个骑手不同 */
   function scoreCtx(s, dts, level){
     var T = aggScope(s, dts);
     var src = (level === 'station') ? byStation(s, dts) : byRider(s, dts);
-    var mx = { missAdd:0, t8Loss:0, comp:0, satW:0 };
+    var S = { s1:0, s2:0, s3:0, s4:0 }, D = { d1:0, d2:0, d3:0, d4:0 }, n = 0;
     src.forEach(function(x){
-      if(x.missAdd > mx.missAdd) mx.missAdd = x.missAdd;
-      if(x.t8Loss  > mx.t8Loss)  mx.t8Loss  = x.t8Loss;
-      if(x.s       > mx.comp)    mx.comp    = x.s;
-      if(x.satW    > mx.satW)    mx.satW    = x.satW;
+      if(!(x.t > 0)) return;
+      var cr = T.avgComp ? Math.min(x.avgComp/T.avgComp, 2) : 0;
+      S.s1 += x.missR/100; S.s2 += x.t8Late/100; S.s3 += cr; S.s4 += x.satR/100;
+      D.d1 += 0.2*x.missR/100; D.d2 += 0.3*x.t8Late/100;
+      D.d3 += 0.15*cr;         D.d4 += 0.2*x.satR/100;
+      n++;
     });
-    return { T:T, mx:mx, level: level || 'rider' };
+    return { T:T, S:S, D:D, n:n, level: level || 'rider' };
   }
 
   function dayList(){                     // 当前日期范围（单日 → [di]，全周期 → all）
@@ -825,30 +832,24 @@
           '<td class="num">'+Math.round(a.satW)+'</td></tr>';
       }).join('')+'</tbody></table></div>' : '<div class="empty">当前筛选下无数据</div>';
   }
-  /* 放大后的占比（0~1）：用于扣分明细展示与综合分计算，三种口径各自一套 */
-  function ampsOf(m, ctx){
-    var mx = ctx.mx || {}, T = ctx.T;
-    if(scoreMode === 'rate')
-      return { r1: m.missR/100, r2: m.t8Late/100,
-               r3: T.avgComp ? Math.min(m.avgComp/T.avgComp, 2) : 0, r4: m.satR/100 };
-    if(scoreMode === 'share'){
-      var sh = sharesOf(m, T);
-      return { r1: sh.s1/100, r2: sh.s2/100, r3: sh.s3/100, r4: sh.s4/100 };
-    }
-    return { r1: mx.missAdd ? m.missAdd/mx.missAdd : 0,
-             r2: mx.t8Loss  ? m.t8Loss/mx.t8Loss  : 0,
-             r3: mx.comp    ? m.s/mx.comp         : 0,
-             r4: mx.satW    ? m.satW/mx.satW      : 0 };
+  /* 四项占比（0~1）与口径标签 —— 用于扣分拆解提示 */
+  function ampsOf(m, ctx, mode){
+    var md = mode || scoreMode;
+    var r = ratioOf(m, ctx, md);
+    var lab = md==='rate' ? ['不完全妥投率','T8超时率','单均复合÷团队均值','非时效不满意度']
+            : md==='tx'   ? ['妥投扣分占比','T8扣分占比','复合扣分占比','非时效扣分占比']
+            :               ['妥投团队占比','T8团队占比','复合团队占比','非时效团队占比'];
+    return { r1:r[0], r2:r[1], r3:r[2], r4:r[3], lab:lab };
   }
   function scoreBar(x, ctx, i, showName){
     var sc = x._sc, col = sc>=90 ? '#059669' : (sc>=80 ? '#f59e0b' : '#dc2626');
     var a = ampsOf(x, ctx);
     var d = [0.2*a.r1, 0.3*a.r2, 0.15*a.r3, 0.2*a.r4];
-    var tip = '扣分拆解（放大后占比 × 权重 × 100）\n'+
-      '① 不完全妥投 '+fmt(a.r1*100,1)+'% × 0.2 = '+fmt(d[0]*100,2)+' 分\n'+
-      '② T8超时     '+fmt(a.r2*100,1)+'% × 0.3 = '+fmt(d[1]*100,2)+' 分\n'+
-      '③ 复合时长   '+fmt(a.r3*100,1)+'% × 0.15 = '+fmt(d[2]*100,2)+' 分\n'+
-      '④ 非时效不满 '+fmt(a.r4*100,1)+'% × 0.2 = '+fmt(d[3]*100,2)+' 分\n'+
+    var tip = '扣分拆解（'+SMODE_LAB[scoreMode]+' × 权重 × 100）\n'+
+      '① '+a.lab[0]+' '+fmt(a.r1*100,2)+'% × 0.2 = '+fmt(d[0]*100,2)+' 分\n'+
+      '② '+a.lab[1]+' '+fmt(a.r2*100,2)+'% × 0.3 = '+fmt(d[1]*100,2)+' 分\n'+
+      '③ '+a.lab[2]+' '+fmt(a.r3*100,2)+'% × 0.15 = '+fmt(d[2]*100,2)+' 分\n'+
+      '④ '+a.lab[3]+' '+fmt(a.r4*100,2)+'% × 0.2 = '+fmt(d[3]*100,2)+' 分\n'+
       '合计扣 '+fmt((d[0]+d[1]+d[2]+d[3])*100,2)+' 分 → 综合分 '+fmt(sc,2);
     return '<tr title="'+escA(tip)+'"'+(x.ri!==undefined?' class="rrow" data-ri="'+x.ri+'"':'')+'>'+
       '<td><span class="rank'+(i<3?' t'+(i+1):'')+'">'+(i+1)+'</span></td>'+
@@ -860,6 +861,42 @@
       '<td class="num">'+pct(x.s3)+'</td><td class="num">'+pct(x.s4)+'</td>'+
       '<td class="barcell"><span class="xb" style="width:'+Math.max(2,Math.min(100,100-sc))+'%;background:'+col+'55"></span>'+
       '<em>'+fmt(sc,1)+'</em></td></tr>';
+  }
+  /* 团队扣分汇总：各站四项扣分 → 按单量加权求和 = 团队扣分 → 各站占团队扣分的比重
+     ★ 扣分用「率值口径」（与单量规模无关）；团队扣分 = Σ(各站扣分 × 单量占比)，
+       数值上等于「用团队整体率值算出的扣分」，故 团队综合分 = 100 − 团队扣分。 */
+  function teamBlock(ctx, stArr){
+    var rows = stArr.map(function(x){
+      var d = deductOf(x, ctx, scoreMode);
+      return { st:x.st, t:x.t, d:d, sum:d[0]+d[1]+d[2]+d[3] };
+    });
+    var tt = rows.reduce(function(a,b){ return a+b.t }, 0) || 1;
+    rows.forEach(function(r){ r.vp = r.t/tt*100; r.contrib = r.sum*r.t/tt });
+    var DT = rows.reduce(function(a,b){ return a+b.contrib }, 0);
+    var score = Math.max(0, Math.min(100, 100-DT));
+    var col = score>=90 ? '#059669' : (score>=80 ? '#b45309' : '#dc2626');
+    var cd = [0,1,2,3].map(function(i){ return rows.reduce(function(a,b){ return a+b.d[i]*b.t/tt }, 0) });
+    var head = '<tr><th>站点</th><th class="num">单量</th><th class="num">单量占比</th>'+
+      '<th class="num">①妥投扣分</th><th class="num">②T8扣分</th><th class="num">③复合扣分</th>'+
+      '<th class="num">④非时效扣分</th><th class="num">扣分合计</th><th class="num">占团队扣分</th></tr>';
+    var body = rows.slice().sort(function(a,b){ return b.sum-a.sum }).map(function(r){
+      return '<tr><td style="font-weight:600">'+esc(r.st.replace('福州',''))+'</td>'+
+        '<td class="num">'+r.t+'</td><td class="num">'+pct(r.vp)+'</td>'+
+        '<td class="num">'+fmt(r.d[0],2)+'</td><td class="num">'+fmt(r.d[1],2)+'</td>'+
+        '<td class="num">'+fmt(r.d[2],2)+'</td><td class="num">'+fmt(r.d[3],2)+'</td>'+
+        '<td class="num" style="font-weight:700">'+fmt(r.sum,2)+'</td>'+
+        '<td class="num">'+pct(DT ? r.contrib/DT*100 : 0)+'</td></tr>';
+    }).join('');
+    var foot = '<tr style="background:#f8fafc;font-weight:700"><td>团队 · 单量加权合计</td>'+
+      '<td class="num">'+tt+'</td><td class="num">100.00%</td>'+
+      '<td class="num">'+fmt(cd[0],2)+'</td><td class="num">'+fmt(cd[1],2)+'</td>'+
+      '<td class="num">'+fmt(cd[2],2)+'</td><td class="num">'+fmt(cd[3],2)+'</td>'+
+      '<td class="num">'+fmt(DT,2)+'</td><td class="num">100.00%</td></tr>';
+    return '<div class="mtabcap">🧾 团队扣分汇总 <span style="font-weight:400;color:#98a2b3">'+
+      '各站扣分按<b>单量占比</b>加权求和 = <b>团队扣分 '+fmt(DT,2)+' 分</b> → '+
+      '<b>团队综合分 <span style="color:'+col+'">'+fmt(score,2)+'</span></b>；'+
+      '「占团队扣分」= 该站对团队扣分的贡献比重（各站合计 100%）。口径随上方切换（当前 '+SMODE_LAB[scoreMode]+'）</span></div>'+
+      '<div style="overflow-x:auto"><table class="xtab"><thead>'+head+'</thead><tbody>'+body+foot+'</tbody></table></div>';
   }
   function renderScore(){
     var dts = dayList();
@@ -883,8 +920,8 @@
     var headSt = '<tr><th>名次</th><th>站点</th><th class="num">单量</th><th class="num">综合分</th>'+
       '<th class="num">妥投占比</th><th class="num">T8占比</th><th class="num">复合占比</th>'+
       '<th class="num">非时效占比</th><th>得分</th></tr>';
-    var worst = rdArr.slice(0, 8);                        // 分最低 = 相对问题最多
-    var best = rdArr.slice(-8).reverse();                  // 分最高
+    var best  = rdArr.slice(0, 8);                        // 分最高（rdArr 已按综合分降序）
+    var worst = rdArr.slice(-8).reverse();                 // 分最低（转成由低到高，第 1 行 = 最差）
     var overlap = rdArr.length <= worst.length + best.length;   // 骑手太少时两端会重复 → 只列一次
     var rdBars = overlap
       ? '<tr><td colspan="10" style="background:#f5f8ff;font-weight:700;color:#334155;padding:6px 8px">'+
@@ -896,19 +933,21 @@
         best.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('');
     $('#scoreSites').innerHTML = '<div style="overflow-x:auto"><table class="xtab"><thead>'+headSt+'</thead><tbody>'+
       stArr.map(function(x,i){ return scoreBar(x, ctxS, i, x.st.replace('福州','')) }).join('')+'</tbody></table></div>';
+    if($('#scoreTeam')) $('#scoreTeam').innerHTML = teamBlock(ctxS, stArr);
     $('#scoreRiders').innerHTML = '<div style="overflow-x:auto"><table class="xtab"><thead>'+head+'</thead><tbody>'+
       rdBars+'</tbody></table></div>';
-    $('#scoreNote').innerHTML = '当前口径：<b>'+({norm:'团队占比·放大到 0~1（默认）',share:'团队占比·原式',rate:'自身率值'}[scoreMode])+'</b> · '+
+    $('#scoreNote').innerHTML = '当前口径：<b>'+SMODE_LAB[scoreMode]+'</b> · '+
       '筛选范围内 <b>'+rdArr.length+'</b> 名骑手（最少单量 ≥ '+scope.min+'）、<b>'+stArr.length+'</b> 个站点。'+
       (scoreMode==='rate'
-        ? '各指标用对象<b>自身率值</b>代入（不完全妥投率、T8超时率、单均复合与团队均值的比值、非时效不满意度），消除单量规模影响，可用于团队整体评价。'
-        : scoreMode==='share'
-        ? '各指标用<b>团队占比原值</b>（0~0.04）直接代入 —— 这是你给的公式的原式。'+
-          '注意：187 名骑手的占比加起来才是 100%，单个人的占比只有 ~0.5%，所以扣分不足 4 分，全场都会挤在 96~100 分，几乎没有区分度。'
-        : '各指标先把<b>团队占比放大到 0~1</b>（÷ 团队内该指标最大占比，团队里最差的人 = 1），再代入公式，'+
-          '这样 0.2/0.3/0.15/0.2 的权重才有意义，分数区间约 15~100。鼠标悬停任意一行可看<b>扣分拆解</b>。'+
-          '当前放大基准（骑手层）：加权未完成 '+Math.round(ctxR.mx.missAdd)+' · T8加权超时 '+Math.round(ctxR.mx.t8Loss)+
-          ' · 复合 '+Math.round(ctxR.mx.comp)+'s · 非时效加权 '+Math.round(ctxR.mx.satW)+'（站点榜/站点卡片按站点内最大值放大）')+
+        ? '各指标用对象<b>自身率值</b>代入：不完全妥投率、T8超时率、单均复合÷团队均值（封顶 2）、非时效不满意度。'+
+          '★ <b>与单量规模无关</b> —— 单量大的站点问题量天然多，但不会再因此被判定为最差。'
+        : scoreMode==='tx'
+        ? '各指标用<b>该对象扣分 ÷ 全体同类对象该项扣分之和</b>代入（各扣分对全体求和后再算占比），'+
+          '同样不受单量规模影响；对象越多、单项占比越小，分数会整体偏高（骑手维度尤其明显）。'
+        : '各指标用<b>团队占比原值</b>（该对象加权分子 ÷ 团队加权分子合计）直接代入 —— 这是原式。'+
+          '⚠️ 占比随<b>单量</b>增长（加权分子 ≈ 单量 × 率值），所以订单多的站点/骑手占比自然高、分数被拉低；'+
+          '且 187 名骑手份额之和才是 100%，单人只占 ~0.5%，分数会全部挤在 96~100。')+
+      '<br>鼠标悬停任意一行可看<b>扣分拆解</b>（每项占比 × 权重 × 100 = 扣几分，四项之和 = 100 − 综合分）。'+
       '<br>点任一行骑手可查看其逐日明细。';
     var seg = $('#scoreSeg');
     if(seg) seg.querySelectorAll('button').forEach(function(b){
@@ -1017,7 +1056,7 @@
   function renderTable(){
     var cols = COLS();
     var dts = dayList();
-    var ctx = scoreCtx(sel, dts), T = ctx.T;      // 团队基准 + 放大基准
+    var ctx = scoreCtx(sel, dts), T = ctx.T;      // 团队基准（占比分母 / 率值合计）
     var base = byRider(sel, dts);
     base.forEach(function(x){
       x.shareO = T.o ? x.o/T.o*100 : 0;
@@ -1033,31 +1072,43 @@
       return x.t>=scope.min && (scope.st==='__all__' || x.st===scope.st) &&
              (!scope.q || x.n.indexOf(scope.q)>=0);
     });
-    // ② 在候选池内按「超时率」降序定排名（并列时超时单多者在前）——用于排名筛选
+    // ② 全池名次（仅用于悬停提示）：超时率名次 / 综合分名次
     pool.slice().sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) })
         .forEach(function(x,i){ x.poolRk = i+1 });
     pool.slice().sort(function(a,b){ return (b.score-a.score) || (b.t-a.t) })
         .forEach(function(x,i){ x.poolSrk = i+1 });
-    // ③ 排名筛选：只保留超时率排名前 N%（至少留 1 人，避免小样本时整表空掉）
-    var cut = 0, list = pool;
-    if(scope.rank > 0 && pool.length){
-      cut = Math.max(1, Math.ceil(pool.length * scope.rank / 100));
-      list = pool.filter(function(x){ return x.poolRk <= cut });
-    }
-    // ④ 排名列 = 「当前展示范围内」的名次（1..N 连续），与排序自洽：
-    //     超时率名次（超时视图）/ 综合分名次（质量视图）。悬停可看全池名次。
-    list.slice().sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) })
-        .forEach(function(x,i){ x.rk = i+1 });
-    list.slice().sort(function(a,b){ return (b.score-a.score) || (b.t-a.t) })
-        .forEach(function(x,i){ x.srk = i+1 });
-    // ⑤ 再按当前排序方式展示
+    // ③ 排序比较器 = 当前排序维度（点表头 / 排序按钮可切换）
     var k = sortKey, dir = sortDir;
-    list.sort(function(a,b){
+    var cmp = function(a,b){
       var va = a[k], vb = b[k];
       if(typeof va === 'string') return va.localeCompare(vb) * dir;
       if(va===vb) return (b.o-a.o) || (b.t-a.t);
       return (va-vb) * dir;
-    });
+    };
+    // ④ 排名筛选：按「当前排序维度」排序后取前 N%，
+    //    并与临界名次排序值相同的（并列）一并纳入 —— 不写死任何维度
+    var cut = 0, list = pool, cutWant = 0;
+    if(scope.rank > 0 && pool.length){
+      var sorted = pool.slice().sort(cmp);
+      cutWant = Math.max(1, Math.ceil(sorted.length * scope.rank / 100));
+      var last = sorted[cutWant-1][k];
+      if(typeof last === 'number'){
+        list = sorted.filter(function(x){
+          return x[k] === last || (dir < 0 ? x[k] > last : x[k] < last);
+        });
+      } else {
+        list = sorted.slice(0, cutWant);
+      }
+      if(!list.length) list = sorted.slice(0, cutWant);
+      cut = list.length;
+    }
+    // ⑤ 排名列 = 「当前展示范围内」的名次（1..N 连续），与排序自洽
+    list.slice().sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) })
+        .forEach(function(x,i){ x.rk = i+1 });
+    list.slice().sort(function(a,b){ return (b.score-a.score) || (b.t-a.t) })
+        .forEach(function(x,i){ x.srk = i+1 });
+    // ⑥ 按当前排序方式展示
+    list.sort(cmp);
 
     var thead = '<tr>' + cols.map(function(c){
       var active = (c.k===k), arrow = active ? (dir>0?' ▲':' ▼') : '', cls = [];
@@ -1109,21 +1160,25 @@
           '<td class="num">'+fmt(x.c,1)+'<span class="muted"> s</span></td></tr>';
       }).join('');
     }
-    var rankTxt = scope.rank>0
-      ? '排名筛选 <b>超时率前 '+scope.rank+'%</b>（候选 '+pool.length+' 名 → 取前 '+cut+' 名）'
-      : '排名筛选 <b>不限</b>（候选 '+pool.length+' 名）';
     var sortLab = view==='quality'
       ? { idx:'综合排名', n:'骑手', st:'站点', t:'单量', score:'综合评价分', missAdd:'妥投加权单', s1:'妥投占比', missR:'不完全妥投率',
           t8W:'T8加权超时单', s2:'T8占比', t8Late:'T8超时率', s:'复合总时长', s3:'复合占比', avgComp:'单均复合',
           satW:'非时效加权单', s4:'非时效占比', satR:'非时效不满意度' }
       : { idx:'排名', n:'骑手', st:'站点', t:'单量', o:'超时单', r:'超时率', shareO:'超时占比', s:'复合总时长', shareS:'复合占比', c:'单均复合' };
+    // ★ rankTxt 必须写在 sortLab 之后：var 提升会让 sortLab[k] 在赋值前取到 undefined 而抛错，
+    //   那样本函数后续（说明文案）会静默跳过，表现为「说明永远停在初始状态」
+    var rankTxt = scope.rank>0
+      ? '排名筛选 <b>按当前排序「'+(sortLab[k]||k)+'」'+(dir>0?'升序':'降序')+'前 '+scope.rank+'%</b>（候选 '+pool.length+' 名 → 取前 '+cut+' 名'+
+        (cut>cutWant ? '，与临界名次并列的一并纳入 +'+(cut-cutWant) : '')+'）'
+      : '排名筛选 <b>不限</b>（候选 '+pool.length+' 名）';
     $('#tblNote').innerHTML = '<b style="color:#1d4ed8">👆 点任意一行骑手可查看逐日明细</b> · 当前：<b>'+(scope.day==='__all__'?'全周期':scope.day)+'</b> · '+
       '「'+(view==='quality'?'综合排名':'排名')+'」列 = <b>'+(view==='quality'?'当前展示范围内按综合分的名次（1 = 分最高）':'当前展示范围内按超时率的名次（1 = 超时率最高）')+'</b>（悬停某行可看全池名次）<br>'+
       '筛选：最少单量 ≥ '+scope.min+' · '+rankTxt+' · 实际展示 <b>'+list.length+'</b> 名 · '+
       '排序：'+(sortLab[k]||k)+(dir>0?' ↑':' ↓')+
       ' · 占比分母=当前范围全部骑手（未完成加权 '+Math.round(T.missAdd)+' · T8加权超时 '+Math.round(T.t8Loss)+
       ' · 复合合计 '+Math.round(T.s)+'s · 非时效加权 '+Math.round(T.satW)+'）'+
-      (view==='quality' ? '<br>综合评价分口径：<b>'+({norm:'团队占比·放大到 0~1（默认）',share:'团队占比·原式',rate:'自身率值'}[scoreMode])+'</b> —— 公式 100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100' : '');
+      (view==='quality' ? '<br>综合评价分口径：<b>'+SMODE_LAB[scoreMode]+'</b> —— 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100；'+
+        '「团队占比」列 = 该骑手加权分子 ÷ 团队加权分子合计（信息列；原式口径下参与计分，其余口径仅作参考）' : '');
   }
   var _tapStart = null, _tapTimer = null, _rowTouchUsed = 0;
   function rowAt(x, y){
@@ -1254,7 +1309,7 @@
     var r = D.riders[ri];
     var t=0,o=0,m=0;
     days.forEach(function(d){ t+=d.t; o+=d.o; m+=d.s });
-    var ctxAll = scoreCtx(sel, allDays());   // 占比分母/放大基准同样用全量日期
+    var ctxAll = scoreCtx(sel, allDays());   // 占比分母 / 率值合计同样用全量日期
     var tot = ctxAll.T;
     var rv = newVec(); days.forEach(function(d){ addVec(rv, d._v) });
     var mcell = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
@@ -1307,7 +1362,7 @@
   });
 
   /* ================= 站点明细弹窗（整个周期） ================= */
-  /* 单个站点的「站点层级」放大基准（用整个周期、当前筛选下所有站点） */
+  /* 站点层级的计分上下文（整个周期、当前筛选下的所有站点的率值合计） */
   function scoreStCtx(st, s){
     var ctx = scoreCtx(s, allDays(), 'station');
     return ctx;
@@ -1985,13 +2040,13 @@
     '<br>④ <b>非时效不满意度</b> =（有效投诉单×5 + 有效差评单×5 + 有效索赔单 + 虚假报备出餐慢取消单）÷ 接单量。'+
     '<br><b>团队占比</b>（骑手表「质量指标视图」、骑手/站点弹窗、综合评价分榜）= 该对象的<b>加权分子</b> ÷ 当前范围全部骑手的加权分子合计；'+
     '加权系数即平台公式里的 ×2 / ×5 —— 例如有效差评按 5 单计、提前点送达按 2 单计、高笔非准时按 2 单计入 T8 分母。'+
-    '<br><b>综合评价分 = 100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100</b>；'+
-    '默认口径 <b>「团队占比·放大到 0~1」</b>= 该指标团队占比 ÷ 该指标<b>团队内最大占比</b>（团队里最差的人 = 1），代入后分数区间约 15~100，'+
-    '悬停榜单任意一行可看<b>扣分拆解</b>（每项「放大后占比 × 权重 × 100 = 扣分」）。'+
-    '⚠️ <b>「占比」必须先放大，公式才成立</b>：团队占比是「我占团队问题量的份额」，全员份额加起来才是 100%，'+
-    '单个人通常只有 0.1%~3%，直接代入的话任何人扣分都不到 4 分、全场挤在 96~100 分，没有区分度。'+
-    '另两档口径：「团队占比·原式」直接用原始占比（忠实原式，分数挤在 96~100）；'+
-    '「自身率值」换成对象自身的不完全妥投率、T8超时率、单均复合÷团队均值、非时效不满意度，消除单量规模影响。'+
+    '<br><b>综合评价分 = 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100</b>（①不完全妥投 ②T8超时 ③单均复合时长 ④非时效不满意）；'+
+    '默认口径 <b>「自身率值」</b>= ①不完全妥投率 ②T8超时率 ③单均复合÷团队均值（封顶 2）④非时效不满意度 —— '+
+    '<b>与单量规模无关</b>，单量大的站点问题量天然多，但不会再因此被判定为最差。悬停榜单任意一行可看<b>扣分拆解</b>（每项「占比 × 权重 × 100 = 扣分」）。'+
+    '另两档口径：「<b>扣分占比</b>」= 该对象各项扣分 ÷ 全体同类对象该项扣分之和（各扣分对全体求和后再算占比，同样不受单量影响，但对象越多分数越挤在高端）；'+
+    '「<b>团队占比·原式</b>」= 该对象加权分子 ÷ 团队加权分子合计（原式；占比 ≈ 单量 × 率值，订单多的对象占比自然高、分数被拉低）。'+
+    '<br><b>团队综合分</b>（综合评价分板块的「团队扣分汇总」）= 各站点「扣分合计」按<b>单量占比</b>加权求和得到团队扣分，再取 100 − 团队扣分；'+
+    '数值上等于「用团队整体率值算出的综合分」，所以团队分不会被站点数量多少影响。表内「占团队扣分」= 该站对团队扣分的贡献比重（各站合计 100%）。'+
     '<br><b>上传要求</b>：支持两种导出格式，自动识别 ——'+
     '① <b>运单明细</b>（73 列）：需含 骑手id、运单状态、超平台期望送达时长；'+
     '投诉取「用户投诉是否成立」、差评取「用户评价等级」（吐槽/差评/不满意）、索赔取「索赔是否成立」、'+
