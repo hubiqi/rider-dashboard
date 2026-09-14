@@ -856,7 +856,9 @@
     var md = mode || scoreMode;
     var r = ratioOf(m, ctx, md);
     var raw = ratioRaw(m, ctx, md);
-    var amp = (ctx && ctx.amp) ? ctx.amp : 1;
+    /* ★ amp 只在「占比」类口径（tx / share）里代入；rate 口径用的是自身率值，没有放大，
+       否则提示里会把率值再除一次 100（"不完全妥投率 0.06% → ×100 = 5.74%"这种假数据）。 */
+    var amp = (md === 'rate') ? 1 : ((ctx && ctx.amp) ? ctx.amp : 1);
     var lab = md==='rate' ? ['不完全妥投率','T8超时率','单均复合÷团队均值','非时效不满意度']
             : md==='tx'   ? ['妥投扣分占比','T8扣分占比','复合扣分占比','非时效扣分占比']
             :               ['妥投团队占比','T8团队占比','复合团队占比','非时效团队占比'];
@@ -881,12 +883,16 @@
       line('④', a.lab[3], a.raw4, a.pre4, a.r4, 0.2)+
       '合计扣 '+fmt((d[0]+d[1]+d[2]+d[3])*100,2)+' 分 → 综合分 '+fmt(sc,2)+
       (amps ? '\n（骑手层级占比被人数稀释，按面板口径 ×'+a.amp+' 放大后参与计分；各单项占比均不封顶）' : '');
+    /* 综合分被夹到 0 时（四项扣分合计 > 100）把净扣分顺带显示出来，
+       否则「最低 N 名」会是一排相同的 0.0，看不出谁更差 */
+    var dedSum = (d[0]+d[1]+d[2]+d[3])*100;
     return '<tr title="'+escA(tip)+'"'+(x.ri!==undefined?' class="rrow" data-ri="'+x.ri+'"':'')+'>'+
       '<td><span class="rank'+(i<3?' t'+(i+1):'')+'">'+(i+1)+'</span></td>'+
       '<td style="font-weight:600">'+esc(showName)+'</td>'+
       (x.ri!==undefined?'<td class="muted">'+esc(x.st)+'</td>':'')+
       '<td class="num">'+x.t+'</td>'+
-      '<td class="num" style="font-weight:800;color:'+col+'">'+fmt(sc,1)+'</td>'+
+      '<td class="num" style="font-weight:800;color:'+col+'">'+fmt(sc,1)+
+        (dedSum>100 ? '<span class="muted" style="font-weight:400;font-size:10px"> 扣'+fmt(dedSum,0)+'</span>' : '')+'</td>'+
       '<td class="num">'+pct(x.s1)+'</td><td class="num">'+pct(x.s2)+'</td>'+
       '<td class="num">'+pct(x.s3)+'</td><td class="num">'+pct(x.s4)+'</td>'+
       '<td class="barcell"><span class="xb" style="width:'+Math.max(2,Math.min(100,100-sc))+'%;background:'+col+'55"></span>'+
@@ -938,21 +944,26 @@
     /* 综合分同为 0（单项不封顶导致扣分合计>100）时，用净扣分从轻到重排，保证名次不并列、最差者最后 */
     var byScore = function(a,b){ return (b._sc-a._sc) || (a._ded-b._ded) };
     var zeroN = rdArr.filter(function(x){ return x._sc <= 0.0001 }).length;
-    [stArr, rdArr].forEach(function(arr){
-      arr.forEach(function(x){
-        var sh = sharesOf(x, T);
-        x.s1 = sh.s1; x.s2 = sh.s2; x.s3 = sh.s3; x.s4 = sh.s4;
+    /* ★ 六个「占比」列 = 计分公式实际代入的值（站点 ctxS amp=1、骑手 ctxR 含 ×100），
+       口径与 scoreOf 完全一致 —— 这样 100 −(0.2×①+0.3×②+0.15×③+0.2×④)×100 能逐行复算出「综合分」。
+       旧版这里显示的是 sharesOf()（团队占比原值，被人数稀释成 ~0.5%），
+       看着就像「骑手的加权扣分根本没放大 100 倍」，且复算不上表格里的分数。
+       注意：改的是展示值，x._sc 在上一段就已算好（ctxS/ctxR 各自独立）→ 站点分与团队扣分汇总逐字节不变。 */
+    [[stArr, ctxS], [rdArr, ctxR]].forEach(function(pair){
+      pair[0].forEach(function(x){
+        var a = ampsOf(x, pair[1]);
+        x.s1 = a.r1*100; x.s2 = a.r2*100; x.s3 = a.r3*100; x.s4 = a.r4*100;
       });
     });
     stArr.sort(function(a,b){ return a._sc-b._sc });
     rdArr.sort(byScore);
 
     var head = '<tr><th>名次</th><th>对象</th><th>站点</th><th class="num">单量</th>'+
-      '<th class="num">综合分</th><th class="num">妥投占比</th><th class="num">T8占比</th>'+
-      '<th class="num">复合占比</th><th class="num">非时效占比</th><th>得分</th></tr>';
+      '<th class="num">综合分</th><th class="num">①妥投占比</th><th class="num">②T8占比</th>'+
+      '<th class="num">③复合占比</th><th class="num">④非时效占比</th><th>得分</th></tr>';
     var headSt = '<tr><th>名次</th><th>站点</th><th class="num">单量</th><th class="num">综合分</th>'+
-      '<th class="num">妥投占比</th><th class="num">T8占比</th><th class="num">复合占比</th>'+
-      '<th class="num">非时效占比</th><th>得分</th></tr>';
+      '<th class="num">①妥投占比</th><th class="num">②T8占比</th><th class="num">③复合占比</th>'+
+      '<th class="num">④非时效占比</th><th>得分</th></tr>';
     var best  = rdArr.slice(0, 8);                        // 分最高（rdArr 已按综合分降序）
     var worst = rdArr.slice(-8).reverse();                 // 分最低（转成由低到高，第 1 行 = 最差）
     var overlap = rdArr.length <= worst.length + best.length;   // 骑手太少时两端会重复 → 只列一次
@@ -960,7 +971,7 @@
       ? '<tr><td colspan="10" style="background:#f5f8ff;font-weight:700;color:#334155;padding:6px 8px">'+
         '骑手共 '+rdArr.length+' 名（≤16，全部列出，按综合分降序）</td></tr>'+
         rdArr.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('')
-      : '<tr><td colspan="10" style="background:#fef2f2;font-weight:700;color:#b91c1c;padding:6px 8px">⚠️ 综合分最低 '+worst.length+' 名（相对团队贡献的问题最多）</td></tr>'+
+      : '<tr><td colspan="10" style="background:#fef2f2;font-weight:700;color:#b91c1c;padding:6px 8px">⚠️ 综合分最低 '+worst.length+' 名（相对团队贡献的问题最多；扣分合计 >100 分时综合分记为 0，「扣」后为净扣分，名次按净扣分从轻到重）</td></tr>'+
         worst.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('')+
         '<tr><td colspan="10" style="background:#ecfdf5;font-weight:700;color:#047857;padding:6px 8px">✅ 综合分最高 '+best.length+' 名</td></tr>'+
         best.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('');
@@ -987,6 +998,9 @@
         : '各指标用<b>团队占比原值</b>（该对象加权分子 ÷ 团队加权分子合计）直接代入 —— 这是原式。'+
           '⚠️ 占比随<b>单量</b>增长（加权分子 ≈ 单量 × 率值），所以订单多的站点/骑手占比自然高、分数被拉低；'+
           '骑手层级同样按 <b>×'+LEVEL_AMP.rider+'</b> 放大后代入。')+
+      '<br>四列「占比」= <b>计分实际代入的值</b>（当前口径 '+SMODE_LAB[scoreMode]+
+        (scoreMode==='rate' ? '，即对象自身率值' : '，骑手层级已 ×'+LEVEL_AMP.rider+' 放大')+
+      '）→ <b>100 −(0.2×① + 0.3×② + 0.15×③ + 0.2×④)×100 = 综合分</b>，每行都能照着复算。'+
       '<br>鼠标悬停任意一行可看<b>扣分拆解</b>（每项占比 × 权重 × 100 = 扣几分，四项之和 = 100 − 综合分）。'+
       '<br>点任一行骑手可查看其逐日明细。';
     var seg = $('#scoreSeg');
@@ -1105,8 +1119,10 @@
       x.t8W  = x.t8Loss;
       x.score = scoreOf(x, ctx);
       x._ded  = sumDeduct(x, ctx);        // 净扣分（不封顶）——综合分并列时用于区分名次
-      var sh = sharesOf(x, T);
-      x.s1 = sh.s1; x.s2 = sh.s2; x.s3 = sh.s3; x.s4 = sh.s4;
+      /* ★ 质量视图里四列「占比」同样用计分实际代入的值（骑手层级已 ×100 放大），
+         列与「综合评价分」必须能互相复算，否则用户核对时必然以为放大没生效 */
+      var aq = ampsOf(x, ctx);
+      x.s1 = aq.r1*100; x.s2 = aq.r2*100; x.s3 = aq.r3*100; x.s4 = aq.r4*100;
     });
     // ① 先按「最少单量 / 站点 / 搜索」筛出候选池
     var pool = base.filter(function(x){
@@ -1204,9 +1220,9 @@
       }).join('');
     }
     var sortLab = view==='quality'
-      ? { idx:'综合排名', n:'骑手', st:'站点', t:'单量', score:'综合评价分', missAdd:'妥投加权单', s1:'妥投占比', missR:'不完全妥投率',
-          t8W:'T8加权超时单', s2:'T8占比', t8Late:'T8超时率', s:'复合总时长', s3:'复合占比', avgComp:'单均复合',
-          satW:'非时效加权单', s4:'非时效占比', satR:'非时效不满意度' }
+      ? { idx:'综合排名', n:'骑手', st:'站点', t:'单量', score:'综合评价分', missAdd:'妥投加权单', s1:'妥投占比×100', missR:'不完全妥投率',
+          t8W:'T8加权超时单', s2:'T8占比×100', t8Late:'T8超时率', s:'复合总时长', s3:'复合占比×100', avgComp:'单均复合',
+          satW:'非时效加权单', s4:'非时效占比×100', satR:'非时效不满意度' }
       : { idx:'排名', n:'骑手', st:'站点', t:'单量', o:'超时单', r:'超时率', shareO:'超时占比', s:'复合总时长', shareS:'复合占比', c:'单均复合' };
     // ★ rankTxt 必须写在 sortLab 之后：var 提升会让 sortLab[k] 在赋值前取到 undefined 而抛错，
     //   那样本函数后续（说明文案）会静默跳过，表现为「说明永远停在初始状态」
