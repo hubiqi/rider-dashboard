@@ -2186,7 +2186,8 @@
     var pi = $('#prevImg'), body = $('#expBody'), mode = 'fitw';
     function applyMode(){
       if(!pi.naturalWidth) return;
-      var aw = body.clientWidth - 20, ah = body.clientHeight - 20;
+      /* ★ 加了下限：弹窗若正处于隐藏态（clientWidth=0），算出的负宽度会被浏览器忽略、看起来像「按钮失灵」 */
+      var aw = Math.max(80, body.clientWidth - 20), ah = Math.max(80, body.clientHeight - 20);
       if(mode === 'fitw'){
         pi.style.width = Math.min(aw, pi.naturalWidth || aw)+'px'; pi.style.height = 'auto';
         $('#modeBtn').textContent = '整图';
