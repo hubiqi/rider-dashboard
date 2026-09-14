@@ -6,8 +6,8 @@
 
   /* ================= 状态 ================= */
   var sel = { f1:'all', f2:'all' };      // 标签筛选
-  var scope = { day:'__all__', st:'__all__', min:5, q:'' };
-  var sortKey = 'o', sortDir = -1;       // 默认按超时单数降序
+  var scope = { day:'__all__', st:'__all__', min:5, q:'', rank:10 };   // rank=超时率前 N%（0=全部）
+  var sortKey = 'r', sortDir = -1;       // 默认按「超时率」降序（与排名筛选口径一致）
   var metric = 'rate';
 
   /* ================= 聚合 ================= */
@@ -76,6 +76,55 @@
     }
     return out;
   }
+  function stationDays(st, s){            // 单个站点的逐日序列（整个周期）
+    var out = [];
+    for(var i=0;i<D.grid.length;i++){
+      var t=0,o=0,m=0,rd=0;
+      (D.grid[i]||[]).forEach(function(e){
+        if(D.riders[e[0]].st !== st) return;
+        var x = cellSum(e.slice(1), s);
+        if(x[0] > 0) rd++;                 // 当天有单的骑手数
+        t+=x[0]; o+=x[1]; m+=x[2];
+      });
+      if(!t) continue;
+      out.push({ dt:D.dates[i], t:t, o:o, s:m, r:o/t*100, c:m/t, rd:rd });
+    }
+    return out;
+  }
+  function stationRiders(st, s){          // 单个站点的骑手列表（整个周期）
+    var acc = {};
+    for(var i=0;i<D.grid.length;i++){
+      (D.grid[i]||[]).forEach(function(e){
+        if(D.riders[e[0]].st !== st) return;
+        var ri = e[0], x = cellSum(e.slice(1), s);
+        var a = acc[ri] || (acc[ri] = [0,0,0]);
+        a[0]+=x[0]; a[1]+=x[1]; a[2]+=x[2];
+      });
+    }
+    return Object.keys(acc).map(function(ri){
+      var a = acc[ri], r = D.riders[ri], f = fin(a[0],a[1],a[2]);
+      f.ri = +ri; f.n = r.n; f.st = r.st; return f;
+    }).filter(function(x){ return x.t > 0 });
+  }
+  function extremes(days){                // 极值标注用的统计
+    if(!days.length) return null;
+    var mx = days[0], mn = days[0], tr = 0, to = 0, tt = 0;
+    days.forEach(function(d){
+      if(d.r > mx.r) mx = d;
+      if(d.r < mn.r) mn = d;
+      tr += d.r; to += d.o; tt += d.t;
+    });
+    return { max:mx, min:mn, avg: tr/days.length, totO:to, totT:tt, avgC: tt ? days.reduce(function(a,d){return a+d.s},0)/tt : 0 };
+  }
+  function statLine(days){                // 图表上方的「整个周期」极值/均值标注
+    var e = extremes(days);
+    if(!e) return '';
+    return '<div class="mstat">整个周期：'+
+      '最高 <b style="color:#dc2626">'+pct(e.max.r)+'</b>（'+e.max.dt.slice(5)+'）· '+
+      '最低 <b style="color:#059669">'+pct(e.min.r)+'</b>（'+e.min.dt.slice(5)+'）· '+
+      '平均 <b>'+pct(e.avg)+'</b> · '+
+      '合计 '+e.totT+' 单 / 超时 '+e.totO+' 单 · 单均复合 '+fmt(e.avgC,1)+'s</div>';
+  }
 
   /* ================= 小工具 ================= */
   function fmt(n,d){ return (Math.round(n*Math.pow(10,d||0))/Math.pow(10,d||0)).toFixed(d||0) }
@@ -105,6 +154,7 @@
     if(r>=3) return '#f59e0b'; if(r>0) return '#10b981'; return '#94a3b8';
   }
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+  function escA(s){ return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
 
   /* ================= 筛选标签 ================= */
   function renderFilterBar(){
@@ -554,6 +604,8 @@
     var allSt = byStation(sel, dts).sort(function(a,b){ return b.r-a.r });
     var lastMap = {}; byStation(sel, [D.dates.length-1]).forEach(function(x){ lastMap[x.st]=x });
     var avgRate = aggScope(sel, dts).r;
+    // 各站骑手数（整个周期，用于卡片上标注规模）
+    var rdCnt = {}; D.riders.forEach(function(r){ rdCnt[r.st] = (rdCnt[r.st]||0)+1 });
     $('#stationGrid').innerHTML = allSt.map(function(st){
       var lp = lastMap[st.st] || {t:0,r:0,c:0};
       var trend = dts.map(function(i){
@@ -565,15 +617,27 @@
         return { r: t? o/t*100:0, c: t? m/t:0 };
       });
       var worst = st.r >= avgRate;
-      return '<div class="card stcard">'+
+      return '<div class="card stcard" data-st="'+escA(st.st)+'" role="button" tabindex="0" title="点击查看「'+escA(st.st)+'」整个周期的明细">'+
         '<div class="h"><div><div class="stname">'+esc(st.st)+'</div>'+
-        '<div class="muted" style="font-size:11.5px;margin-top:2px">'+st.t+' 单 · 超时 '+st.o+' 单 · 单均 '+fmt(st.c,1)+'s</div></div>'+
+        '<div class="muted" style="font-size:11.5px;margin-top:2px">'+st.t+' 单 · 超时 '+st.o+' 单 · 单均 '+fmt(st.c,1)+'s · '+(rdCnt[st.st]||0)+' 名骑手</div></div>'+
         '<div style="text-align:right"><div style="font-size:20px;font-weight:800;color:'+(worst?'#ef4444':'#10b981')+'">'+pct(st.r)+'</div>'+
         '<div class="muted" style="font-size:11px">超时率</div></div></div>'+
         '<div style="font-size:11.5px;color:#475467">最新 <b>'+lp.t+'</b> 单 / 超时率 <b>'+pct(lp.r)+'</b> / 单均 <b>'+fmt(lp.c,1)+'</b>s</div>'+
-        sparkline(trend, worst?'#ef4444':'#10b981','r')+'</div>';
-    }).join('');
+        sparkline(trend, worst?'#ef4444':'#10b981','r')+
+        '<div class="stmore">查看整个周期明细 ›</div></div>';
+    }).join('') +
+    '<div class="note" style="grid-column:1/-1;margin:2px 4px 0">👆 点任意站点卡片 → 查看该站<b>整个周期</b>的逐日趋势（图表 + 每日数据标注）、每日明细表与该站骑手排行</div>';
   }
+  /* 站点卡片点击 → 站点详情 */
+  $('#stationGrid').addEventListener('click', function(e){
+    var c = e.target.closest('.stcard'); if(!c) return;
+    openStation(c.getAttribute('data-st'));
+  });
+  $('#stationGrid').addEventListener('keydown', function(e){
+    if(e.key !== 'Enter' && e.key !== ' ') return;
+    var c = e.target.closest('.stcard'); if(!c) return;
+    e.preventDefault(); openStation(c.getAttribute('data-st'));
+  });
 
   /* ================= 骑手表（可排序 + 占比） ================= */
   var COLS = [
@@ -596,10 +660,21 @@
       x.shareO = tot.o ? x.o/tot.o*100 : 0;
       x.shareS = tot.s ? x.s/tot.s*100 : 0;
     });
-    var list = base.filter(function(x){
+    // ① 先按「最少单量 / 站点 / 搜索」筛出候选池
+    var pool = base.filter(function(x){
       return x.t>=scope.min && (scope.st==='__all__' || x.st===scope.st) &&
              (!scope.q || x.n.indexOf(scope.q)>=0);
     });
+    // ② 在候选池内按「超时率」降序定排名（并列时超时单多者在前）
+    pool.slice().sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) })
+        .forEach(function(x,i){ x.rk = i+1 });
+    // ③ 排名筛选：只保留超时率排名前 N%（至少留 1 人，避免小样本时整表空掉）
+    var cut = 0, list = pool;
+    if(scope.rank > 0 && pool.length){
+      cut = Math.max(1, Math.ceil(pool.length * scope.rank / 100));
+      list = pool.filter(function(x){ return x.rk <= cut });
+    }
+    // ④ 再按当前排序方式展示
     var k = sortKey, dir = sortDir;
     list.sort(function(a,b){
       var va = a[k], vb = b[k];
@@ -619,12 +694,12 @@
 
     if(!list.length){
       $('#riderTable').querySelector('tbody').innerHTML =
-        '<tr><td colspan="'+COLS.length+'" class="empty">无符合条件的数据（可放宽筛选或降低「最少单量」）</td></tr>';
+        '<tr><td colspan="'+COLS.length+'" class="empty">无符合条件的数据（可放宽筛选、降低「最少单量」或把排名筛选改为「全部」）</td></tr>';
     } else {
       $('#riderTable').querySelector('tbody').innerHTML = list.map(function(x,i){
-        var rc = rateColor(x.r), rk = i<3?' t'+(i+1):'';
-        return '<tr class="rrow" data-ri="'+x.ri+'">'+
-          '<td><span class="rank'+rk+'">'+(i+1)+'</span></td>'+
+        var rc = rateColor(x.r), rk = x.rk<=3 ? ' t'+x.rk : '';
+        return '<tr class="rrow" data-ri="'+x.ri+'" title="超时率排名第 '+x.rk+' 名">'+
+          '<td><span class="rank'+rk+'">'+x.rk+'</span></td>'+
           '<td style="font-weight:600">'+esc(x.n)+'</td>'+
           '<td class="muted">'+esc(x.st)+'</td>'+
           '<td class="num">'+x.t+'</td>'+
@@ -636,8 +711,13 @@
           '<td class="num">'+fmt(x.c,1)+'<span class="muted"> s</span></td></tr>';
       }).join('');
     }
-    $('#tblNote').innerHTML = '<b style="color:#1d4ed8">👆 点任意一行骑手可查看逐日明细</b> · 当前：<b>'+(scope.day==='__all__'?'全周期':scope.day)+'</b> · 符合条件 <b>'+list.length+'</b> 名骑手 · '+
-      '最少单量 ≥ '+scope.min+' · 排序：'+({idx:'排名',n:'骑手',st:'站点',t:'单量',o:'超时单',r:'超时率',shareO:'超时占比',s:'复合总时长',shareS:'复合占比',c:'单均复合'}[k])+(dir>0?' ↑':' ↓')+
+    var rankTxt = scope.rank>0
+      ? '排名筛选 <b>超时率前 '+scope.rank+'%</b>（候选 '+pool.length+' 名 → 取前 '+cut+' 名）'
+      : '排名筛选 <b>不限</b>（候选 '+pool.length+' 名）';
+    $('#tblNote').innerHTML = '<b style="color:#1d4ed8">👆 点任意一行骑手可查看逐日明细</b> · 当前：<b>'+(scope.day==='__all__'?'全周期':scope.day)+'</b> · '+
+      '「排名」列 = <b>超时率排名</b>（在候选池内，1 = 超时率最高）<br>'+
+      '筛选：最少单量 ≥ '+scope.min+' · '+rankTxt+' · 实际展示 <b>'+list.length+'</b> 名 · '+
+      '排序：'+({idx:'排名',n:'骑手',st:'站点',t:'单量',o:'超时单',r:'超时率',shareO:'超时占比',s:'复合总时长',shareS:'复合占比',c:'单均复合'}[k])+(dir>0?' ↑':' ↓')+
       ' · 占比分母=当前范围全部骑手（超时 '+tot.o+' 单 / 复合合计 '+Math.round(tot.s)+' 秒）';
   }
   var _tapStart = null, _tapTimer = null, _rowTouchUsed = 0;
@@ -686,16 +766,20 @@
   /* ================= 骑手明细弹窗 ================= */
   var C_RATE = '#1d4ed8';     // 超时率（左轴）蓝
   var C_COMP = '#ea580c';     // 单均复合（右轴）橙
-  function lineChart(days){
-    if(!days.length) return '<div class="empty">该骑手在当前筛选下无数据</div>';
-    var W=720,H=330, pl=54, pr=60, pt=38, pb=48;
-    var iw=W-pl-pr, ih=H-pt-pb, n=days.length;
+  function lineChart(days, opts){
+    if(!days.length) return '<div class="empty">当前筛选下无数据</div>';
+    opts = opts || {};
+    var H=330, pl=54, pr=60, pt=38, pb=48, n=days.length;
+    // 数据点多时按比例加宽画布（外层横向可滚动），保证每个点的数据标注互不重叠
+    var per = opts.per || 56;
+    var W = Math.max(opts.minW || 700, pl + pr + Math.max(1, n-1)*per);
+    var iw=W-pl-pr, ih=H-pt-pb;
     var maxR = Math.max.apply(null, days.map(function(d){return d.r}).concat([1]))*1.3;
     var maxC = Math.max.apply(null, days.map(function(d){return d.c}).concat([1]))*1.3;
     function X(i){ return n===1 ? pl+iw/2 : pl + iw*i/(n-1) }
     function YR(v){ return pt + ih - v/maxR*ih }
     function YC(v){ return pt + ih - v/maxC*ih }
-    var s = '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet">';
+    var s = '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="min-width:'+Math.round(W)+'px">';
     s += '<defs><filter id="halo" x="-30%" y="-30%" width="160%" height="160%">'+
          '<feMorphology operator="dilate" radius="2" in="SourceAlpha" result="d"/>'+
          '<feFlood flood-color="#fff"/><feComposite in2="d" operator="in" result="o"/>'+
@@ -711,26 +795,31 @@
     s += '<path d="'+d2+'" fill="none" stroke="'+C_COMP+'" stroke-width="2.4" stroke-linejoin="round" stroke-dasharray="7 5"/>';
     s += '<path d="'+d1+'" fill="none" stroke="'+C_RATE+'" stroke-width="2.6" stroke-linejoin="round"/>';
     var PB = pt + ih;   // 绘图区底边
+    var maxI = 0; days.forEach(function(d,i){ if(d.r > days[maxI].r) maxI = i });   // 峰值点
     days.forEach(function(d,i){
       var x = X(i).toFixed(1);
       var yr = YR(d.r), yc = YC(d.c);
+      if(i === maxI)      // 峰值加一圈光环，便于一眼定位
+        s += '<circle cx="'+x+'" cy="'+yr.toFixed(1)+'" r="8.5" fill="none" stroke="'+C_RATE+'" stroke-width="1.6" opacity="0.45"/>';
       s += '<circle cx="'+x+'" cy="'+yr.toFixed(1)+'" r="3.6" fill="#fff" stroke="'+C_RATE+'" stroke-width="2.2"/>';
       s += '<circle cx="'+x+'" cy="'+yc.toFixed(1)+'" r="3.2" fill="#fff" stroke="'+C_COMP+'" stroke-width="2"/>';
       // 数据标注：默认超时率在上、复合时长在下；贴边时互换，两者过近时再错开
+      // 首/末点的文字改用 start/end 锚点，避免压到左右两侧的坐标轴刻度
+      var anch = (n >= 3) ? (i === 0 ? 'start' : (i === n-1 ? 'end' : 'middle')) : 'middle';
       var ry = yr - 9;
       if(ry < pt + 9) ry = yr + 15;
       var cy = yc + 16;
       if(cy > PB - 5) cy = yc - 10;
       if(cy > PB - 5) cy = PB - 6;
       if(Math.abs(ry - cy) < 13){ ry = cy - 13; if(ry < pt + 9) ry = cy + 13; }
-      s += '<text x="'+x+'" y="'+ry.toFixed(1)+'" text-anchor="middle" font-size="10.5" font-weight="700" '+
+      s += '<text x="'+x+'" y="'+ry.toFixed(1)+'" text-anchor="'+anch+'" font-size="10.5" font-weight="700" '+
            'fill="'+C_RATE+'" filter="url(#halo)">'+d.r.toFixed(1)+'%</text>';
-      s += '<text x="'+x+'" y="'+cy.toFixed(1)+'" text-anchor="middle" font-size="10.5" font-weight="700" '+
+      s += '<text x="'+x+'" y="'+cy.toFixed(1)+'" text-anchor="'+anch+'" font-size="10.5" font-weight="700" '+
            'fill="'+C_COMP+'" filter="url(#halo)">'+Math.round(d.c)+'s</text>';
-      s += '<text x="'+x+'" y="'+(H-pb+22)+'" text-anchor="middle" font-size="11" fill="#98a2b3">'+d.dt.slice(5)+'</text>';
+      s += '<text x="'+x+'" y="'+(H-pb+22)+'" text-anchor="'+anch+'" font-size="11" fill="#98a2b3">'+d.dt.slice(5)+'</text>';
     });
     s += '</svg>';
-    return s;
+    return '<div class="chartwrap">'+s+'</div>';
   }
   function openRider(ri){
     var days = riderDays(ri, sel);            // 始终取该骑手全部日期的数据
@@ -751,11 +840,13 @@
         mcell('超时占比', pct(tot.o? o/tot.o*100:0)) + mcell('复合时长占比', pct(tot.s? m/tot.s*100:0)) +
         mcell('复合总时长', Math.round(m)+'s') + mcell('活跃天数', days.length) +
       '</div>'+
+      statLine(days)+
       '<div class="mlegend"><span><i style="background:'+C_RATE+'"></i>超时率（左轴·实线）</span>'+
         '<span><i style="background:'+C_COMP+'"></i>单均复合（右轴·虚线）</span>'+
         '<span style="color:#98a2b3">点上/点下数字为每日实际值</span></div>'+
       lineChart(days)+
-      '<div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">超时单</th><th class="num">超时率</th><th class="num">单均复合</th></tr></thead><tbody>'+
+      '<div class="mtabcap">📅 每日明细（整个周期）</div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">超时单</th><th class="num">超时率</th><th class="num">单均复合</th></tr></thead><tbody>'+
         days.map(function(d){
           return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
             '<td class="num">'+pct(d.r)+'</td><td class="num">'+fmt(d.c,1)+'s</td></tr>';
@@ -777,6 +868,74 @@
     if(Date.now() - _modalOpenedAt < 450) return;   // 防「幽灵点击」刚打开就被关掉
     this.classList.remove('show');
   });
+
+  /* ================= 站点明细弹窗（整个周期） ================= */
+  function openStation(st){
+    var days = stationDays(st, sel);          // 整个周期，不随上方日期筛选变化
+    var allRd = stationRiders(st, sel);
+    var rd = allRd.filter(function(x){ return x.t>=scope.min && x.t>0 })
+                  .sort(function(a,b){ return (b.r-a.r) || (b.o-a.o) || (b.t-a.t) });
+    var t=0,o=0,m=0;
+    days.forEach(function(d){ t+=d.t; o+=d.o; m+=d.s });
+    var tot = aggScope(sel, allDays());       // 占比分母同样用全量日期
+    var mcell = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
+    var dayTab = '<div style="overflow-x:auto"><table><thead><tr>'+
+      '<th>日期</th><th class="num">单量</th><th class="num">超时单</th><th class="num">超时率</th>'+
+      '<th class="num">单均复合</th><th class="num">出勤骑手</th></tr></thead><tbody>'+
+      days.map(function(d){
+        return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
+          '<td class="num" style="color:'+rateColor(d.r)+';font-weight:700">'+pct(d.r)+'</td>'+
+          '<td class="num">'+fmt(d.c,1)+'s</td><td class="num">'+d.rd+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+    var rTab = '<div style="overflow-x:auto"><table><thead><tr>'+
+      '<th>排名</th><th>骑手</th><th class="num">单量</th><th class="num">超时单</th>'+
+      '<th class="num">超时率</th><th class="num">单均复合</th><th class="num">超时占比</th></tr></thead><tbody>'+
+      (rd.length ? rd.map(function(x,i){
+        return '<tr class="rrow mrrow" data-ri="'+x.ri+'" title="点击查看 '+escA(x.n)+' 的逐日明细">'+
+          '<td><span class="rank'+(i<3?' t'+(i+1):'')+'">'+(i+1)+'</span></td>'+
+          '<td style="font-weight:600">'+esc(x.n)+'</td>'+
+          '<td class="num">'+x.t+'</td><td class="num">'+x.o+'</td>'+
+          '<td class="num" style="color:'+rateColor(x.r)+';font-weight:700">'+pct(x.r)+'</td>'+
+          '<td class="num">'+fmt(x.c,1)+'s</td>'+
+          '<td class="num">'+pct(t? x.o/t*100:0)+'</td></tr>';
+      }).join('') : '<tr><td colspan="7" class="empty">该站点在当前筛选下无骑手数据</td></tr>')+
+      '</tbody></table></div>';
+    var html = '<div class="modal-card">'+
+      '<div class="mhead"><div><div class="mtitle">'+esc(st)+'</div>'+
+      '<div class="muted" style="font-size:12px">'+selText()+' · '+allRd.length+' 名骑手 · '+
+      '<b>整个周期 '+days.length+' 天（不随上方日期筛选变化）</b></div></div>'+
+      '<div style="display:flex;gap:8px;align-items:center;flex:0 0 auto">'+
+      '<button class="expbtn" id="mexp" style="margin-left:0">🖼 导出图片</button>'+
+      '<button class="mclose" id="mclose">✕</button></div></div>'+
+      '<div class="mgrid">'+
+        mcell('单量', t) + mcell('超时单', o) +
+        mcell('超时率', pct(t? o/t*100:0)) + mcell('单均复合', fmt(t? m/t:0,1)+'s') +
+        mcell('超时占比', pct(tot.o? o/tot.o*100:0)) + mcell('复合时长占比', pct(tot.s? m/tot.s*100:0)) +
+        mcell('复合总时长', Math.round(m)+'s') + mcell('出勤骑手', allRd.length) +
+      '</div>'+
+      statLine(days)+
+      '<div class="mlegend"><span><i style="background:'+C_RATE+'"></i>超时率（左轴·实线）</span>'+
+        '<span><i style="background:'+C_COMP+'"></i>单均复合（右轴·虚线）</span>'+
+        '<span style="color:#98a2b3">点上/点下数字为每日实际值，峰值带光环</span></div>'+
+      lineChart(days)+
+      '<div class="mtabcap">📅 每日明细（整个周期）</div>'+ dayTab +
+      '<div class="mtabcap">👥 该站骑手排行 <span style="font-weight:400;color:#98a2b3">共 '+allRd.length+' 名出勤，'+
+        '按最少单量 ≥ '+scope.min+' 显示 '+rd.length+' 名；点任一行看逐日明细</span></div>'+ rTab +
+      '</div>';
+    var mo = $('#modal');
+    mo.className = 'modal';
+    mo.innerHTML = html; mo.classList.add('show');
+    _modalOpenedAt = Date.now();
+    $('#mclose').onclick = function(){ mo.classList.remove('show') };
+    $('#mexp').onclick = function(e){
+      e.stopPropagation();
+      doExport(mo.querySelector('.modal-card'), st+' 全周期明细',
+        { backLabel:'返回站点明细', back:function(){ openStation(st) } });
+    };
+    mo.querySelectorAll('tr.mrrow').forEach(function(tr){
+      tr.onclick = function(){ openRider(+tr.getAttribute('data-ri')) };
+    });
+  }
 
   /* ================= 上传 ================= */
   function setStatus(msg, isErr){
@@ -910,12 +1069,14 @@
       byStation({f1:'all',f2:'all'}, null).sort(function(a,b){ return a.st.localeCompare(b.st) })
         .map(function(s){ return '<option value="'+esc(s.st)+'">'+esc(s.st)+'</option>' }).join('');
     $('#minSel').value = String(scope.min);
+    if($('#rankSel')) $('#rankSel').value = String(scope.rank);
   }
   document.addEventListener('change', function(e){
     var t = e.target;
     if(t.id==='daySel'){ scope.day = t.value; renderAll(); }
     else if(t.id==='stSel'){ scope.st = t.value; renderAll(); }
     else if(t.id==='minSel'){ scope.min = +t.value; renderTable(); }
+    else if(t.id==='rankSel'){ scope.rank = +t.value; renderTable(); }
   });
   document.addEventListener('input', function(e){
     if(e.target.id==='q'){ scope.q = e.target.value; renderTable(); }
@@ -928,7 +1089,7 @@
   });
   function applyData(src){
     showDash();
-    scope.day = '__all__'; scope.st = '__all__'; scope.q = ''; scope.min = 5;
+    scope.day = '__all__'; scope.st = '__all__'; scope.q = ''; scope.min = 5; scope.rank = 10;
     if($('#q')) $('#q').value = '';
     buildControls(); renderAll();
   }
@@ -1318,7 +1479,11 @@
     '<b>8~15 分钟</b>：1 倍，= (t − 480)；'+
     '<b>15~30 分钟</b>：1.5 倍，= 420 + (t − 900) × 1.5；'+
     '<b>&gt;30 分钟</b>：2 倍，= 1770 + (t − 1800) × 2，且总封顶 <b>5400 秒（90 分钟）</b>。'+
-    '<br><b>交互</b>：点击表头任一项排序；点击骑手行查看其<b>全量</b>逐日折线明细（不受上方日期筛选影响）；'+
+    '<br><b>排名筛选</b>：骑手明细的「排名」列 = <b>超时率排名</b>（在「最少单量 / 站点 / 搜索」筛选出的候选池内，1 = 超时率最高，并列时超时单多者在前）；'+
+    '右侧「超时率前 5%/10%/15%/20%」按该排名只保留前 N%（默认 <b>10%</b>），选「全部」则不过滤。'+
+    '<br><b>交互</b>：点击表头任一项排序；点击骑手行查看其<b>全量</b>逐日折线明细；'+
+    '<b>点击站点卡片</b> → 查看该站<b>整个周期</b>的逐日趋势折线（带每日数据标注与峰值光环）、每日明细表、以及该站骑手排行（可再点进单个骑手）；'+
+    '以上明细均不受上方日期筛选影响；'+
     '每个板块右上角「导出图片」可把该板块保存为 PNG；顶部可上传新的运单明细 xlsx，数据在本地浏览器解析，不会上传到任何服务器。'+
     '<br><b>上传要求</b>：支持两种导出格式，自动识别 ——'+
     '① <b>新格式</b>（运单明细）：需含列 骑手id、超平台期望送达时长、运单状态；'+
