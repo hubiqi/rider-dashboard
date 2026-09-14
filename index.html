@@ -39,8 +39,8 @@ header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,
 .ecard .ebar{height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;margin:5px 0 3px}
 .ecard .ebar i{display:block;height:100%;border-radius:2px}
 .xtab{width:100%;border-collapse:collapse;font-size:12.5px;min-width:420px}
-.xtab th{text-align:left;padding:7px 8px;border-bottom:2px solid #e2e8f0;font-size:11.5px;color:#64748b;white-space:nowrap}
-.xtab th.num,.xtab td.num{text-align:right}
+.xtab th{text-align:center;padding:7px 8px;border-bottom:2px solid #e2e8f0;font-size:11.5px;color:#64748b;white-space:nowrap}
+.xtab th.num,.xtab td.num{text-align:center}
 .xtab td{padding:7px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap}
 .xtab td.sname{font-weight:600;color:#1e293b}
 .xtab .mut{color:#cbd5e1}
@@ -79,21 +79,23 @@ select,input[type=search]{border:1px solid var(--line);background:#fff;border-ra
   font-size:12.5px;color:var(--ink);outline:none}
 input[type=search]{min-width:120px}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
-th,td{padding:9px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th,td{padding:9px 8px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
 /* 竖向分割：每列之间一条细线，分组边界（占比列 / 得分列）用稍深的线分隔 */
 th+th,td+td{border-left:1px solid #edf1f6}
 tbody td:first-child{border-left:none}
+/* ★ 列号 = 源码里的列序，改列必须同步改这里 */
 #scoreSites th:nth-child(5),#scoreSites td:nth-child(5),
 #scoreSites th:nth-child(9),#scoreSites td:nth-child(9),
 #scoreRiders th:nth-child(6),#scoreRiders td:nth-child(6),
 #scoreRiders th:nth-child(10),#scoreRiders td:nth-child(10),
-#riderTable th:nth-child(7),#riderTable td:nth-child(7){border-left:1px solid #d5dde8}
-#riderTable.quality th:nth-child(10),#riderTable.quality td:nth-child(10),
-#riderTable.quality th:nth-child(13),#riderTable.quality td:nth-child(13),
-#riderTable.quality th:nth-child(16),#riderTable.quality td:nth-child(16){border-left:1px solid #e3e9f1}
+#riderTable:not(.quality) th:nth-child(7),#riderTable:not(.quality) td:nth-child(7),
+#riderTable.quality th:nth-child(8),#riderTable.quality td:nth-child(8){border-left:1px solid #d5dde8}
+#riderTable.quality th:nth-child(11),#riderTable.quality td:nth-child(11),
+#riderTable.quality th:nth-child(14),#riderTable.quality td:nth-child(14),
+#riderTable.quality th:nth-child(17),#riderTable.quality td:nth-child(17){border-left:1px solid #e3e9f1}
 th{color:var(--sub);font-weight:600;font-size:11.5px;position:sticky;top:0;background:#fff;z-index:1}
 tbody tr:hover{background:#fafbff}
-td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.num,th.num{text-align:center;font-variant-numeric:tabular-nums}
 .rank{display:inline-flex;width:20px;height:20px;border-radius:6px;background:#f2f4f7;color:#475467;
   font-size:11px;font-weight:700;align-items:center;justify-content:center;margin-right:7px}
 .rank.t1{background:#fef3c7;color:#b45309}.rank.t2{background:#e5e7eb;color:#374151}.rank.t3{background:#fde8d7;color:#9a3412}
@@ -273,10 +275,10 @@ tr.rrow:active{background:#f2f6ff}
       <div class="seg" id="metricSeg">
         <button data-m="rate" class="on">超时率</button>
         <button data-m="full">完全妥投率</button>
-        <button data-m="miss">不完全妥投率</button>
+        <button data-m="miss">非妥投率</button>
         <button data-m="t8">预测T8准时率</button>
         <button data-m="t8l">T8超时率</button>
-        <button data-m="sat">非时效不满意度</button>
+        <button data-m="sat">不满意</button>
         <button data-m="comp">单均复合时长</button>
         <button data-m="tot">单量</button>
       </div>
@@ -297,8 +299,8 @@ tr.rrow:active{background:#f2f6ff}
   <div class="card">
     <div class="ctrl">
       <div class="seg" id="viewSeg">
-        <button data-v="timeout" class="on">超时视图</button>
-        <button data-v="quality">质量指标视图</button>
+        <button data-v="quality" class="on">质量指标视图</button>
+        <button data-v="timeout">超时视图</button>
       </div>
       <select id="daySel"></select>
       <select id="stSel"></select>
@@ -308,21 +310,15 @@ tr.rrow:active{background:#f2f6ff}
         <option value="1">1</option><option value="5" selected>5</option>
         <option value="10">10</option><option value="20">20</option><option value="50">50</option>
       </select>
-      <span class="muted" style="font-size:12px" title="按「超时率排名」只保留前 N%">超时率前</span>
-      <select id="rankSel" title="按超时率排名筛选">
+      <span class="muted" style="font-size:12px" title="按当前排序维度只保留前 N%（升/降序随该维度）">排序前</span>
+      <select id="rankSel" title="按当前排序维度筛选">
         <option value="0">全部</option>
         <option value="5">5%</option>
         <option value="10" selected>10%</option>
         <option value="15">15%</option>
         <option value="20">20%</option>
       </select>
-      <div class="seg" id="sortSeg">
-        <button data-s="o">按超时单</button>
-        <button data-s="r" class="on">按超时率</button>
-        <button data-s="shareO">按超时占比</button>
-        <button data-s="shareS">按复合占比</button>
-        <button data-s="score">按综合分</button>
-      </div>
+      <div class="seg" id="sortSeg"></div>
     </div>
     <div class="scroll"><table id="riderTable"><thead></thead><tbody></tbody></table></div>
     <div class="note" id="tblNote"></div>
@@ -350,6 +346,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=42"></script>
+<script src="core_v24.js?v=43"></script>
 </body>
 </html>
