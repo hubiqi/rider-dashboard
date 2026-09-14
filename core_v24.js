@@ -805,6 +805,18 @@
     var tr = e.target.closest('tr.rrow'); if(!tr) return;
     openRider(+tr.getAttribute('data-ri'));
   });
+  /* 四指标卡也可点开明细（在 renderMetrics 里渲染，事件用委托，避免重建后失效） */
+  if($('#mKpi')) {
+    $('#mKpi').addEventListener('click', function(e){
+      var c = e.target.closest('.metcard'); if(!c) return;
+      openMetric(c.getAttribute('data-met'));
+    });
+    $('#mKpi').addEventListener('keydown', function(e){
+      if(e.key !== 'Enter' && e.key !== ' ') return;
+      var c = e.target.closest('.metcard'); if(!c) return;
+      e.preventDefault(); openMetric(c.getAttribute('data-met'));
+    });
+  }
   /* 四指标卡 / 综合评价分的口径切换按钮（若存在） */
   if($('#mViewSeg')) $('#mViewSeg').addEventListener('click', function(e){
     var b = e.target.closest('button'); if(!b) return;
@@ -819,11 +831,76 @@
   });
 
   /* ================= 质量四指标 + 综合评价分 ================= */
+  /* 四个考核指标的定义（卡片 / 迷你折线 / 详情弹窗共用一份，改口径只改这里） */
+  var MET4 = [
+    { k:'missR',  lab:'① 非妥投率',      color:'#dc2626', unit:'%', dec:2,
+      sub:'加权未完成单', subKey:'missAdd', subUnit:'',
+      desc:'妥投失败的订单占比（平台原名：不完全妥投率）= 加权未完成单 ÷（有效完单 + 加权未完成单）' },
+    { k:'t8Late', lab:'② T8超时率',      color:'#be185d', unit:'%', dec:2,
+      sub:'加权超时单', subKey:'t8Loss', subUnit:'',
+      desc:'= 加权超时单 ÷（有效完单 + 高笔非准时加权）；加权超时 = 超时单 + 高笔 + 虚假报备出餐慢取消 + 虚假改派规避 + 提前点送达×2' },
+    { k:'avgComp',lab:'③ 单均复合超时时长', color:'#7c3aed', unit:'s', dec:1,
+      sub:'复合合计', subKey:'s', subUnit:'s',
+      desc:'= 复合总时长 ÷ 有效完单；复合时长 = Σ(每单实际送达 − 应付送达) 的正值部分' },
+    { k:'satR',   lab:'④ 不满意',         color:'#d97706', unit:'%', dec:2,
+      sub:'加权单', subKey:'satW', subUnit:'',
+      desc:'平台原名「非时效不满意度」= 加权单 ÷ 接单量；加权 = 投诉×5 + 差评×5 + 索赔 + 虚假报备出餐慢取消' }
+  ];
+  function metVal(M, a){ return a ? a[M.k] : 0 }
+  function metTxt(M, v){ return M.unit==='%' ? pct(v) : fmt(v, M.dec)+(M.unit||'') }
+  /* 迷你折线：自带数据标注。
+     ★ 卡片宽度只有 ~240px，所以画布按固定宽度绘制、等比缩放（不能用 preserveAspectRatio="none"，
+       否则横向拉伸会把日期标注压变形）；数据点多时只标「首 / 最高 / 最低 / 末」四个点，避免糊成一团。 */
+  function miniLine(days, M){
+    var n = days.length;
+    if(!n) return '<div class="empty" style="font-size:11px;padding:8px">当前筛选下无数据</div>';
+    var vals = days.map(function(d){ return metVal(M, d.a) });
+    var W = 240, H = 94, pl = 24, pr = 24, pt = 26, pb = 20;
+    var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals);
+    if(mx === mn){ mx = mx + Math.abs(mx)*0.15 + 0.01; mn = Math.max(0, mn - Math.abs(mn)*0.15 - 0.01) }
+    var span = (mx-mn) || 1, iw = W-pl-pr, ih = H-pt-pb;
+    var X = function(i){ return n===1 ? pl+iw/2 : pl + iw*i/(n-1) };
+    var Y = function(v){ return pt + ih - (v-mn)/span*ih };
+    var pts = vals.map(function(v,i){ return [X(i), Y(v)] });
+    var d = pts.map(function(p,i){ return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1) }).join(' ');
+    var maxI = 0, minI = 0;
+    vals.forEach(function(v,i){ if(v>vals[maxI]) maxI=i; if(v<vals[minI]) minI=i });
+    // 标注哪些点
+    var marks = {};
+    if(n <= 6){ points().forEach(function(i){ marks[i]=1 }) } else { marks[0]=marks[n-1]=marks[maxI]=marks[minI]=1 }
+    function points(){ var a=[]; for(var i=0;i<n;i++) a.push(i); return a }
+    var s = '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">';
+    s += '<line x1="'+pl+'" y1="'+(pt+ih)+'" x2="'+(W-pr)+'" y2="'+(pt+ih)+'" stroke="#eef1f6"/>';
+    s += '<path d="'+d+' L'+pts[n-1][0].toFixed(1)+' '+(pt+ih)+' L'+pts[0][0].toFixed(1)+' '+(pt+ih)+' Z" fill="'+M.color+'" opacity="0.08"/>';
+    s += '<path d="'+d+'" fill="none" stroke="'+M.color+'" stroke-width="2" stroke-linejoin="round"/>';
+    vals.forEach(function(v,i){
+      var x = X(i).toFixed(1), y = Y(v);
+      if(i === maxI && n > 2)
+        s += '<circle cx="'+x+'" cy="'+y.toFixed(1)+'" r="6" fill="none" stroke="'+M.color+'" stroke-width="1.3" opacity="0.4"/>';
+      s += '<circle cx="'+x+'" cy="'+y.toFixed(1)+'" r="'+(i===n-1?3.2:2.3)+'" fill="'+(i===n-1?M.color:'#fff')+'" stroke="'+M.color+'" stroke-width="1.7"/>';
+      if(!marks[i]) return;
+      var anch = n>=3 ? (i===0?'start':(i===n-1?'end':'middle')) : 'middle';
+      if(marks[i] && i>0 && i<n-1) anch = 'middle';
+      var ty = y - 8; if(ty < pt - 8) ty = y + 14;
+      s += '<text x="'+x+'" y="'+ty.toFixed(1)+'" text-anchor="'+anch+'" font-size="9.5" font-weight="700" fill="'+M.color+'">'+
+           (M.k==='avgComp' ? Math.round(v) : v.toFixed(M.dec))+'</text>';
+    });
+    // 横轴日期：点少时全标，点多时只标首尾（中间空间留给数值标注）
+    var xm = (n <= 4) ? points() : [0, n-1];
+    xm.forEach(function(i){
+      var anch = (n>=3 && i===n-1) ? 'end' : 'start';
+      if(n===1) anch='middle';
+      s += '<text x="'+X(i).toFixed(1)+'" y="'+(H-6)+'" text-anchor="'+anch+'" font-size="9" fill="#98a2b3">'+days[i].dt.slice(5)+'</text>';
+    });
+    s += '</svg>';
+    return '<div class="miniline">'+s+'</div>';
+  }
   function mcard(lab, val, unit, l1, l2, color){
     return '<div class="card"><div class="lab">'+lab+'</div>'+
       '<div class="val" style="color:'+color+'">'+val+'<small>'+unit+'</small></div>'+
       '<div class="foot">'+l1+'</div><div class="foot">'+l2+'</div></div>';
   }
+  /* ① 卡片：最新日期 + 全周期 + 内嵌迷你折线（含数据标注），整卡可点 → 详情 */
   function renderMetrics(byD){
     var dts = dayList();
     var T = aggScope(sel, dts);
@@ -833,26 +910,35 @@
     if(D.legacy) warn = '<div class="note" style="color:#b45309">⚠️ 当前数据是本机缓存的<b>旧版数据</b>（不含四指标字段），下方四指标恒为 0 或不完整，'+
       '请点上方「⬆ 载入数据」重新上传 xlsx（考核明细或运单明细均可）。</div>';
     else if(av.sat === false) warn = '<div class="note" style="color:#b45309">⚠️ 该数据源缺少「投诉 / 差评 / 索赔」列，④ 不满意按 0 计（该指标不可用）。</div>';
-    $('#mKpi').innerHTML =
-      mcard('① 完全妥投率', pct(T.fullR), '', '加权未完成单 <b>'+Math.round(T.missAdd)+'</b>',
-            '非妥投率 <b style="color:#dc2626">'+pct(T.missR)+'</b>', '#059669') +
-      mcard('② 预测T8准时率', pct(T.t8R), '', '加权超时单 <b>'+Math.round(T.t8Loss)+'</b>'+
-            '（含高笔 '+Math.round(T.t8hi)+' · 提前点送达 '+Math.round(T.early)+'）',
-            'T8超时率 <b style="color:#be185d">'+pct(T.t8Late)+'</b>', '#0891b2') +
-      mcard('③ 单均复合超时时长', fmt(T.avgComp,1), 's', '复合合计 <b>'+hh(T.s)+'</b>',
-            '有效完单 <b>'+T.t+'</b> 单', '#7c3aed') +
-      mcard('④ 不满意', pct(T.satR), '', '加权单 <b>'+Math.round(T.satW)+'</b>'+
-            '（投诉 '+T.cmpl+' ×5 · 差评 '+T.bad+' ×5 · 索赔 '+T.claim+' · 虚假报备 '+T.fakeCan+'）',
-            '接单 <b>'+T.acc+'</b> 单', '#d97706');
+
+    var days = byD || [];
+    var nDay = days.length;
+    var lastD = nDay ? days[nDay-1] : null;                  // 最新日期（本范围内的最后一天）
+    var single = (nDay === 1);                               // 范围只有一天时两个数会相同
+    $('#mKpi').innerHTML = MET4.map(function(M){
+      var lv = metVal(M, lastD && lastD.a), tv = T[M.k];
+      return '<div class="card metcard" data-met="'+M.k+'" tabindex="0" title="点击查看「'+M.lab+'」详情（逐日折线 + 明细表）">'+
+        '<div class="lab">'+M.lab+'<span class="metmore">详情 ›</span></div>'+
+        '<div class="val" style="color:'+M.color+'">'+metTxt(M, lv)+'</div>'+
+        '<div class="met2">'+
+          '<span class="m1" title="最新日期（'+D.last+'）">📅 '+(lastD?lastD.dt:'—')+'</span>'+
+          '<span class="m2" title="全周期聚合（'+nDay+' 天加权）">Σ 全周期（'+nDay+' 天）<b>'+metTxt(M, tv)+'</b></span>'+
+        '</div>'+
+        miniLine(days, M)+
+        '<div class="foot">'+M.sub+' <b>'+Math.round(lv ? (lastD.a[M.subKey]||0) : 0)+
+          (M.subUnit||'')+'</b>　·　全周期 <b>'+Math.round(tv ? (T[M.subKey]||0) : 0)+(M.subUnit||'')+'</b>'+
+          (single ? '　<span class="muted">（当前筛选为单日）</span>' : '')+'</div>'+
+      '</div>';
+    }).join('');
     if($('#mWarn')) $('#mWarn').innerHTML = warn;
 
     // 四指标逐日明细
-    $('#mTrendTable').innerHTML = byD && byD.length ?
+    $('#mTrendTable').innerHTML = days.length ?
       '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th>'+
       '<th class="num">完全妥投率</th><th class="num">非妥投率</th><th class="num">加权未完成</th>'+
       '<th class="num">T8准时率</th><th class="num">T8超时率</th><th class="num">加权超时</th>'+
       '<th class="num">单均复合</th><th class="num">不满意</th><th class="num">加权单</th></tr></thead><tbody>'+
-      byD.map(function(x){
+      days.map(function(x){
         var a = x.a;
         return '<tr'+(x.dt===D.last?' style="background:#f5f8ff"':'')+'>'+
           '<td style="font-weight:'+(x.dt===D.last?'700':'400')+'">'+x.dt+'</td>'+
@@ -881,9 +967,27 @@
              raw1:raw[0]/amp, raw2:raw[1]/amp, raw3:raw[2]/amp, raw4:raw[3]/amp,
              pre1:raw[0], pre2:raw[1], pre3:raw[2], pre4:raw[3], amp:amp, lab:lab };
   }
-  function scoreBar(x, ctx, i, showName){
-    var sc = x._sc, col = sc>=90 ? '#059669' : (sc>=80 ? '#f59e0b' : '#dc2626');
-    var a = ampsOf(x, ctx);
+  /* 综合分 → 颜色（数值列与进度条共用同一套色阶，保证「颜色 = 分档」直觉一致） */
+  function scoreColor(sc){
+    if(sc>=95) return '#059669';   // 优秀
+    if(sc>=90) return '#10b981';   // 良好
+    if(sc>=80) return '#f59e0b';   // 一般
+    if(sc>=70) return '#f97316';   // 偏差
+    return '#dc2626';              // 差
+  }
+  /* ★ 得分进度条（v44）：
+       长度 = 综合分本身（0~100 → 0~100%），颜色 = 综合分所在色阶。
+       旧版长度是 100−sc（扣分），分数越高条越短 —— 方向反了，已修。 */
+  function scoreBarCell(sc, dedSum){
+    var col = scoreColor(sc), w = Math.max(0, Math.min(100, sc));
+    return '<td class="barcell"><div class="scbar" title="综合分 '+fmt(sc,1)+' / 100（条长与颜色均按分数）">'+
+      '<span class="track"><i style="width:'+w.toFixed(1)+'%;background:'+col+'"></i></span>'+
+      '<b style="color:'+col+'">'+fmt(sc,1)+'</b></div>'+
+      (dedSum>100 ? '<div class="muted" style="font-size:10px;line-height:1">扣'+fmt(dedSum,0)+'</div>' : '')+'</td>';
+  }
+  /* ★ 扣分拆解提示文本（骑手两端榜 / 站点榜 / 骑手明细排行 共用同一份口径说明） */
+  function deductTip(x, ctx){
+    var sc = x._sc, a = ampsOf(x, ctx);
     var d = [0.2*a.r1, 0.3*a.r2, 0.15*a.r3, 0.2*a.r4];
     var amps = a.amp !== 1, isRider = (x.ri !== undefined);
     /* 四列「占比」的显示口径（v42）：
@@ -897,7 +1001,7 @@
       if(isRider) return k+' '+lab+'　团队占比 '+fmt(shPct,2)+'%（信息列）｜ 计分代入 '+fmt(cur*100,2)+'% × '+w+' = '+fmt(cur*w*100,2)+' 分\n';
       return k+' '+lab+' '+fmt(cur*100,2)+'%（计分代入值）× '+w+' = '+fmt(cur*w*100,2)+' 分\n';
     };
-    var tip = '扣分拆解（'+SMODE_LAB[scoreMode]+' × 权重 × 100）'+
+    return '扣分拆解（'+SMODE_LAB[scoreMode]+' × 权重 × 100）'+
       (amps ? '　★ 骑手层级占比 ×'+fmt(a.amp,2)+'（＝'+ctx.n+' 人 × 0.1）放大后代入，放大只用于计分' : '')+'\n'+
       line('①', a.lab[0], a.r1, 0.2, shArr?shArr[0]:0)+
       line('②', a.lab[1], a.r2, 0.3, shArr?shArr[1]:0)+
@@ -911,20 +1015,22 @@
               '　计分代入值 = 团队人数把人均占比稀释到 1/N 后按 ×'+fmt(a.amp,2)+' 还原（人均约 10%），公式用的是它，\n'+
               '　所以骑手行不能直接用四列复算综合分 —— 站点行不放大，可以直接复算。各单项均不封顶）'
             : '（站点层级占比量级正常，不放大 —— 站点行的四列即计分代入值，可直接复算综合分）'));
-    /* 综合分被夹到 0 时（四项扣分合计 > 100）把净扣分顺带显示出来，
-       否则「最低 N 名」会是一排相同的 0.0，看不出谁更差 */
+  }
+  function scoreBar(x, ctx, i, showName){
+    var sc = x._sc, col = scoreColor(sc);
+    var a = ampsOf(x, ctx);
+    var d = [0.2*a.r1, 0.3*a.r2, 0.15*a.r3, 0.2*a.r4];
+    var tip = deductTip(x, ctx);
     var dedSum = (d[0]+d[1]+d[2]+d[3])*100;
     return '<tr title="'+escA(tip)+'"'+(x.ri!==undefined?' class="rrow" data-ri="'+x.ri+'"':'')+'>'+
       '<td><span class="rank'+(i<3?' t'+(i+1):'')+'">'+(i+1)+'</span></td>'+
       '<td style="font-weight:600">'+esc(showName)+'</td>'+
       (x.ri!==undefined?'<td class="muted">'+esc(x.st)+'</td>':'')+
       '<td class="num">'+x.t+'</td>'+
-      '<td class="num" style="font-weight:800;color:'+col+'">'+fmt(sc,1)+
-        (dedSum>100 ? '<span class="muted" style="font-weight:400;font-size:10px"> 扣'+fmt(dedSum,0)+'</span>' : '')+'</td>'+
+      '<td class="num" style="font-weight:800;color:'+col+'">'+fmt(sc,1)+'</td>'+
       '<td class="num">'+pct(x.s1)+'</td><td class="num">'+pct(x.s2)+'</td>'+
       '<td class="num">'+pct(x.s3)+'</td><td class="num">'+pct(x.s4)+'</td>'+
-      '<td class="barcell"><span class="xb" style="width:'+Math.max(2,Math.min(100,100-sc))+'%;background:'+col+'55"></span>'+
-      '<em>'+fmt(sc,1)+'</em></td></tr>';
+      scoreBarCell(sc, dedSum)+'</tr>';
   }
   /* 团队扣分汇总：各站四项扣分 → 按单量加权求和 = 团队扣分 → 各站占团队扣分的比重
      ★ 扣分用「率值口径」（与单量规模无关）；团队扣分 = Σ(各站扣分 × 单量占比)，
@@ -1212,9 +1318,13 @@
         '<tr><td colspan="'+cols.length+'" class="empty">无符合条件的数据（可放宽筛选、降低「最少单量」或把排名筛选改为「全部」）</td></tr>';
     } else if(view === 'quality'){
       $('#riderTable').querySelector('tbody').innerHTML = list.map(function(x){
-        var scCol = x.score>=90 ? '#059669' : (x.score>=80 ? '#b45309' : '#dc2626');
-        return '<tr class="rrow" data-ri="'+x.ri+'" title="展示范围内第 '+x.srk+' 名（综合分）· 全池综合分第 '+x.poolSrk+' 名 / 超时率第 '+x.poolRk+' 名">'+
-          '<td class="num" style="font-weight:800;color:'+scCol+'">'+fmt(x.score,1)+'</td>'+
+        var scCol = scoreColor(x.score);
+        /* ★ v44：把骑手两端榜的「扣分拆解」提示复用到明细排行（同一份 deductTip，口径不会漂） */
+        var tipQ = '展示范围内第 '+x.srk+' 名（综合分）· 全池综合分第 '+x.poolSrk+' 名 / 超时率第 '+x.poolRk+' 名\n'+
+                   '────────────────────\n'+deductTip(x, ctx);
+        return '<tr class="rrow" data-ri="'+x.ri+'" title="'+escA(tipQ)+'">'+
+          '<td class="num" style="font-weight:800;color:'+scCol+'">'+fmt(x.score,1)+
+            (x._ded>100 ? '<span class="muted" style="font-weight:400;font-size:10px"> 扣'+fmt(x._ded,0)+'</span>' : '')+'</td>'+
           '<td><span class="rank'+(x.srk<=3?' t'+x.srk:'')+'">'+x.srk+'</span></td>'+
           '<td style="font-weight:600">'+esc(x.n)+'</td>'+
           '<td class="muted">'+esc(x.st)+'</td>'+
@@ -1235,7 +1345,9 @@
     } else {
       $('#riderTable').querySelector('tbody').innerHTML = list.map(function(x){
         var rc = rateColor(x.r), rk = x.rk<=3 ? ' t'+x.rk : '';
-        return '<tr class="rrow" data-ri="'+x.ri+'" title="展示范围内第 '+x.rk+' 名（超时率）· 全池超时率第 '+x.poolRk+' 名 / 综合分第 '+x.poolSrk+' 名">'+
+        var tipT = '展示范围内第 '+x.rk+' 名（超时率）· 全池超时率第 '+x.poolRk+' 名 / 综合分第 '+x.poolSrk+' 名\n'+
+                   '────────────────────\n'+deductTip(x, ctx);
+        return '<tr class="rrow" data-ri="'+x.ri+'" title="'+escA(tipT)+'">'+
           '<td><span class="rank'+rk+'">'+x.rk+'</span></td>'+
           '<td style="font-weight:600">'+esc(x.n)+'</td>'+
           '<td class="muted">'+esc(x.st)+'</td>'+
@@ -1393,6 +1505,110 @@
         mc('④ 非时效加权单 <em>团队占比 '+pct(sh.s4)+'</em>', Math.round(m.satW)) +
         mc('接单量 / 有效完单', m.acc+' / '+m.t) +
       '</div>';
+  }
+  /* ================= 单个质量指标的详情弹窗 ================= */
+  function openMetric(mk){
+    var M = MET4.filter(function(m){ return m.k === mk })[0];
+    if(!M) return;
+    var days = LASTBYD || [];
+    var T = aggScope(sel, dayList());
+    var n = days.length, last = n ? days[n-1] : null;
+    var mc = function(lab,val,cls){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv"'+(cls?' style="color:'+cls+'"':'')+'>'+val+'</div></div>' };
+    var lv = metVal(M, last && last.a), tv = T[M.k];
+    var prev = n>1 ? metVal(M, days[n-2].a) : null;
+    var dd = (prev!==null && prev!==0) ? (lv-prev)/prev*100 : null;
+    var dTxt = dd===null ? '—' : ((dd>0?'▲ ':'▼ ')+Math.abs(dd).toFixed(1)+'%');
+    var dCol = dd===null ? '#98a2b3' : (M.k==='avgComp' ? (dd>0?'#dc2626':'#059669') : (dd>0?'#dc2626':'#059669'));
+
+    var html = '<div class="modal-card">'+
+      '<div class="mhead"><div>'+
+        '<div class="mtitle" style="color:'+M.color+'">'+M.lab+'</div>'+
+        '<div class="muted" style="font-size:12px;margin-top:4px;line-height:1.5">'+M.desc+'</div>'+
+        '<div class="muted" style="font-size:11.5px;margin-top:4px">当前筛选：'+
+          (scope.day==='__all__' ? '全周期' : scope.day)+' · 最少单量 ≥ '+scope.min+
+          ' · 共 <b>'+n+'</b> 天</div>'+
+      '</div><button class="mclose" id="mclose">✕</button></div>'+
+      '<div class="mgrid" style="margin-top:12px">'+
+        mc('最新日期 '+(last?last.dt:'—'), metTxt(M, lv), M.color) +
+        mc('较前一日', dTxt, dCol) +
+        mc('全周期（'+n+' 天）', metTxt(M, tv), M.color) +
+        mc(M.sub+'（最新）', Math.round(last? (last.a[M.subKey]||0):0)+(M.subUnit||'')) +
+        mc(M.sub+'（全周期）', Math.round(T[M.subKey]||0)+(M.subUnit||'')) +
+        mc('区间最高 / 最低', (function(){
+          if(!n) return '—';
+          var vs = days.map(function(d){ return metVal(M, d.a) });
+          var hi = 0, lo = 0;
+          vs.forEach(function(v,i){ if(v>vs[hi]) hi=i; if(v<vs[lo]) lo=i });
+          return metTxt(M, vs[hi])+' <em style="font-size:11px">'+days[hi].dt.slice(5)+'</em>'+
+                 ' / '+metTxt(M, vs[lo])+' <em style="font-size:11px">'+days[lo].dt.slice(5)+'</em>';
+        })()) +
+      '</div>'+
+      '<div class="mtabcap">📈 逐日走势（含数据标注）</div>'+
+      lineChart2(days, M)+
+      '<div class="mtabcap">📅 逐日明细 —— '+M.lab+'</div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th>'+
+        '<th class="num">接单</th><th class="num">'+M.lab+'</th><th class="num">'+M.sub+'</th>'+
+        '<th class="num">较前一日</th></tr></thead><tbody>'+
+        days.map(function(x,i){
+          var v = metVal(M, x.a), pv = i? metVal(M, days[i-1].a) : null;
+          var d2 = (pv!==null && pv!==0) ? (v-pv)/pv*100 : null;
+          var c2 = d2===null ? '#98a2b3' : (d2>0?'#dc2626':'#059669');
+          return '<tr'+(x.dt===D.last?' style="background:#f5f8ff"':'')+'>'+
+            '<td style="font-weight:'+(x.dt===D.last?'700':'400')+'">'+x.dt+'</td>'+
+            '<td class="num">'+x.a.t+'</td><td class="num">'+x.a.acc+'</td>'+
+            '<td class="num" style="color:'+M.color+';font-weight:700">'+metTxt(M, v)+'</td>'+
+            '<td class="num">'+Math.round(x.a[M.subKey]||0)+(M.subUnit||'')+'</td>'+
+            '<td class="num" style="color:'+c2+'">'+(d2===null?'—':((d2>0?'▲ ':'▼ ')+Math.abs(d2).toFixed(1)+'%'))+'</td></tr>';
+        }).join('')+
+        '<tr style="background:#f8fafc;font-weight:700"><td>全周期合计</td>'+
+          '<td class="num">'+T.t+'</td><td class="num">'+T.acc+'</td>'+
+          '<td class="num" style="color:'+M.color+'">'+metTxt(M, tv)+'</td>'+
+          '<td class="num">'+Math.round(T[M.subKey]||0)+(M.subUnit||'')+'</td><td class="num">—</td></tr>'+
+      '</tbody></table></div>'+
+      '</div>';
+    var mo = $('#modal');
+    mo.className = 'modal';
+    mo.innerHTML = html; mo.classList.add('show');
+    _modalOpenedAt = Date.now();
+    $('#mclose').onclick = function(){ mo.classList.remove('show') };
+  }
+  /* 单指标大折线（一座标轴 + 逐点标注，与卡片的迷你折线同色系） */
+  function lineChart2(days, M){
+    var n = days.length;
+    if(!n) return '<div class="empty">当前筛选下无数据</div>';
+    var vals = days.map(function(d){ return metVal(M, d.a) });
+    var H = 260, pl = 46, pr = 24, pt = 34, pb = 46, per = 62;
+    var W = Math.max(620, pl + pr + Math.max(1, n-1)*per);
+    var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals);
+    if(mx === mn){ mx = mx + Math.abs(mx)*0.15 + 0.01; mn = Math.max(0, mn - Math.abs(mn)*0.15 - 0.01) }
+    var span = (mx-mn) || 1, iw = W-pl-pr, ih = H-pt-pb;
+    var X = function(i){ return n===1 ? pl+iw/2 : pl + iw*i/(n-1) };
+    var Y = function(v){ return pt + ih - (v-mn)/span*ih };
+    var s = '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="min-width:'+Math.round(W)+'px">';
+    for(var g=0; g<=4; g++){
+      var y = pt + ih*g/4, gv = mx - span*g/4;
+      s += '<line x1="'+pl+'" y1="'+y.toFixed(1)+'" x2="'+(W-pr)+'" y2="'+y.toFixed(1)+'" stroke="#eef1f6"/>';
+      s += '<text x="'+(pl-8)+'" y="'+(y+4).toFixed(1)+'" text-anchor="end" font-size="11" fill="#98a2b3">'+
+           (M.k==='avgComp' ? Math.round(gv) : gv.toFixed(2))+(M.unit==='%'?'%':'')+'</text>';
+    }
+    var pts = vals.map(function(v,i){ return [X(i), Y(v)] });
+    var d = pts.map(function(p,i){ return (i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1) }).join(' ');
+    s += '<path d="'+d+' L'+pts[n-1][0].toFixed(1)+' '+(pt+ih)+' L'+pts[0][0].toFixed(1)+' '+(pt+ih)+' Z" fill="'+M.color+'" opacity="0.09"/>';
+    s += '<path d="'+d+'" fill="none" stroke="'+M.color+'" stroke-width="2.6" stroke-linejoin="round"/>';
+    var maxI = 0; vals.forEach(function(v,i){ if(v > vals[maxI]) maxI = i });
+    vals.forEach(function(v,i){
+      var x = X(i).toFixed(1), y = Y(v);
+      if(i === maxI && n > 2)
+        s += '<circle cx="'+x+'" cy="'+y.toFixed(1)+'" r="9" fill="none" stroke="'+M.color+'" stroke-width="1.6" opacity="0.4"/>';
+      s += '<circle cx="'+x+'" cy="'+y.toFixed(1)+'" r="'+(i===n-1?4:3)+'" fill="'+(i===n-1?M.color:'#fff')+'" stroke="'+M.color+'" stroke-width="2"/>';
+      var anch = n>=3 ? (i===0?'start':(i===n-1?'end':'middle')) : 'middle';
+      var ty = y - 10; if(ty < pt - 6) ty = y + 17;
+      s += '<text x="'+x+'" y="'+ty.toFixed(1)+'" text-anchor="'+anch+'" font-size="11" font-weight="700" fill="'+M.color+'">'+
+           (M.k==='avgComp' ? Math.round(v) : v.toFixed(M.dec))+(M.unit==='%'?'%':'')+'</text>';
+      s += '<text x="'+x+'" y="'+(H-pb+24)+'" text-anchor="'+anch+'" font-size="11" fill="#98a2b3">'+days[i].dt.slice(5)+'</text>';
+    });
+    s += '</svg>';
+    return '<div class="chartwrap">'+s+'</div>';
   }
   function openRider(ri){
     var days = riderDays(ri, sel);            // 始终取该骑手全部日期的数据
@@ -1786,8 +2002,18 @@
 
   /* ================= 导出图片 ================= */
   var EXP_MAX_H = 8000;     // 导出高度上限（CSS px），超出则截断并提示
-  var EXP_MAX_PX = 6e6;     // 成图解码内存预算：6M 像素 ≈ 24MB 位图，手机 WebView 才解得动
-  var PREV_MAX_PX = 4e6;    // 弹窗预览缩略图的像素预算（≈16MB 位图，兼顾清晰度与手机内存）
+  /* ★ 分辨率预算（v45 重做）——目的：保证成图里「最小字号」也看得清
+     ① EXP_MIN_TEXT_PX：模块内最小文字在成图里至少要有多少像素（22px ≈ 正常屏幕的正文大小，缩略看图也认得出）
+     ② 目标倍率 = EXP_MIN_TEXT_PX ÷ 模块最小字号（下方 9px 的图表标注 → 2.44×）
+     ③ 再受三个上限约束：总像素（内存）、单边长度（部分浏览器单维上限）、绝对倍率
+     ★ 关键：SVG 必须按「目标像素尺寸」栅格化（width/height = CSS 尺寸 × 倍率 + viewBox 保持 CSS 尺寸），
+       否则浏览器按 1× 画好再放大 → 文字发虚（旧版就是这个毛病）。 */
+  var EXP_MIN_TEXT_PX = 22;
+  var EXP_MAX_SCALE   = 4;
+  var EXP_MAX_SIDE    = 12000;
+  var EXP_MAX_PX      = 1.7e7;   // 17M 像素 ≈ 68MB 位图（兼顾清晰度与手机内存；iOS 画布上限 16.7M 也够用）
+  var PREV_MAX_PX     = 8e6;     // 弹窗预览缩略图的像素预算（预览也一并放大，放大看细节不再糊）
+  var PREV_MAX_W      = 1400;
   var blobUrls = [];        // 待释放的 object URL
   function freeBlobs(){
     blobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u) }catch(e){} });
@@ -1811,6 +2037,19 @@
     return pv;
   }
   function allDays(){ var a=[]; for(var i=0;i<D.grid.length;i++) a.push(i); return a }
+
+  /* 模块内「最小的可见文字字号」（用于定导出倍率：最小字号 × 倍率 ≥ EXP_MIN_TEXT_PX）
+     只看有文本的节点；SVG <text> 也计入（图表里的 9px 标注正是最需要看清的） */
+  function minFontSize(el){
+    var min = 0, list = el.querySelectorAll('*');
+    for(var i=0;i<list.length;i++){
+      var n = list[i];
+      if(!n.textContent || !n.textContent.trim()) continue;
+      var fs = parseFloat(getComputedStyle(n).fontSize);
+      if(fs && (!min || fs < min)) min = fs;
+    }
+    return min || 11;
+  }
 
   // 找出需要横向展开的容器，返回「额外需要增加的宽度」
   function extraWidth(el){
@@ -1853,7 +2092,6 @@
     return { node: clone, clipped: clipped };
   }
   async function modToPng(el, scale){
-    scale = scale || 2;
     var extra = extraWidth(el);
     var innerW = (el.offsetWidth || 380) + extra;
     var c = exportClone(el, innerW), clone = c.node;
@@ -1864,10 +2102,24 @@
     document.body.appendChild(holder);
     clone.style.width = '';                     // 交给 holder 决定（减去内边距）
     var w = innerW + 32, h = holder.offsetHeight;
+    var minFs = minFontSize(clone);             // ★ 必须在 holder 仍在文档里时量（计算样式才有效）
     var css = document.querySelector('style').textContent;
     var xml = new XMLSerializer().serializeToString(clone);
     document.body.removeChild(holder);
-    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'+
+
+    /* ★ 倍率：目标是「最小字号 ≥ EXP_MIN_TEXT_PX」，再受像素 / 单边 / 绝对倍率三重约束 */
+    var want = Math.min(EXP_MAX_SCALE, Math.max(1, EXP_MIN_TEXT_PX / minFs));
+    var byPx   = Math.sqrt(EXP_MAX_PX / (w*h));
+    var bySide = Math.min(EXP_MAX_SIDE / w, EXP_MAX_SIDE / h);
+    var sc = Math.max(1, Math.min(want, byPx, bySide));
+    sc = Math.floor(sc*100)/100;
+    var effPx  = Math.max(1, Math.round(minFs * sc));      // 成图里最小字号实际是多少 px
+    var capped = effPx < EXP_MIN_TEXT_PX;                  // 是否受预算限制没达到目标字号（按实际像素判定，避免四舍五入误报）
+
+    /* ★ 让 SVG 直接按目标像素尺寸栅格化：外层 width/height = CSS 尺寸 × sc，viewBox 仍是 CSS 尺寸。
+       浏览器按 w*sc 光栅化矢量内容 → 文字真清晰；旧写法（1× 画完再 ctx.scale）会把文字放大成糊的。 */
+    var ow = Math.round(w*sc), oh = Math.round(h*sc);
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+ow+'" height="'+oh+'" viewBox="0 0 '+w+' '+h+'">'+
       '<foreignObject x="0" y="0" width="'+w+'" height="'+h+'">'+
       '<div xmlns="http://www.w3.org/1999/xhtml" style="width:'+w+'px;height:'+h+'px;padding:16px;box-sizing:border-box;background:#f4f6fa">'+
       '<style>'+css+'</style>'+xml+'</div></foreignObject></svg>';
@@ -1875,19 +2127,16 @@
     var ok = await new Promise(function(res){
       img.onload = function(){ res(true) }; img.onerror = function(){ res(false) };
       img.src = 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
-      setTimeout(function(){ res(false) }, 8000);
+      setTimeout(function(){ res(false) }, 15000);
     });
     if(!ok) throw new Error('图片渲染失败');
     var cv = document.createElement('canvas');
-    var sc = Math.max(1, Math.min(scale, Math.sqrt(EXP_MAX_PX/(w*h))));
-    sc = Math.round(sc*100)/100;
-    cv.width = Math.round(w*sc); cv.height = Math.round(h*sc);
+    cv.width = ow; cv.height = oh;
     var ctx = cv.getContext('2d');
     ctx.fillStyle = '#f4f6fa'; ctx.fillRect(0,0,cv.width,cv.height);
-    ctx.scale(sc,sc);
-    ctx.drawImage(img,0,0);
+    ctx.drawImage(img,0,0);                     // 尺寸已一致，无需再缩放
     var full = { w: cv.width, h: cv.height };
-    var pv = downScale(cv, 1000, PREV_MAX_PX);
+    var pv = downScale(cv, PREV_MAX_W, PREV_MAX_PX);
     var prev = { w: pv.width, h: pv.height };
     var prevBlob = await toBlob(pv);
     var fullBlob = await toBlob(cv);
@@ -1897,7 +2146,8 @@
       url: makeUrl(prevBlob), dl: makeUrl(fullBlob),
       w: Math.round(w), h: Math.round(h),
       outW: full.w, outH: full.h, prevW: prev.w, prevH: prev.h,
-      scale: sc, clipped: c.clipped
+      scale: sc, minFs: minFs, effPx: effPx, capped: capped, wantScale: Math.round(want*100)/100,
+      clipped: c.clipped
     };
   }
   function toast(msg, ms){
@@ -1914,8 +2164,9 @@
     mo.innerHTML = '<div class="modal-card">'+
       '<div class="exp-head"><div style="min-width:0">'+
         '<div class="mtitle" style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(name)+' · 导出图片</div>'+
-        '<div class="muted" style="font-size:11.5px;margin-top:2px">成图 '+res.outW+' × '+res.outH+' px'+
-          (res.outW > res.prevW ? ' · 预览缩略图 '+res.prevW+'×'+res.prevH : '')+
+        '<div class="muted" style="font-size:11.5px;margin-top:2px">成图 '+res.outW+' × '+res.outH+' px（'+res.scale+'×）'+
+          ' · 最小文字约 <b style="color:'+(res.capped?'#b45309':'#059669')+'">'+res.effPx+'px</b>'+
+          (res.capped ? ' <span style="color:#b45309">⚠️ 未达清晰目标（'+EXP_MIN_TEXT_PX+'px）—— 内容过大已按上限导出，建议缩小筛选范围后再导出</span>' : '')+
           (res.clipped ? ' · <span style="color:#b45309">内容过长已截断</span>' : '')+' · 长按图片可保存</div></div>'+
         '<button class="mclose" id="mclose">✕</button></div>'+
       '<div class="exp-body fitw" id="expBody">'+
