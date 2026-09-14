@@ -237,12 +237,13 @@ tr.rrow:active{background:#f2f6ff}
     <div id="mTrendTable"></div>
   </div>
 
-  <div class="sec-title"><span class="dot"></span>综合评价分 <small>100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100</small></div>
+  <div class="sec-title"><span class="dot"></span>综合评价分 <small>100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100 ｜ 占比先放大到 0~1</small></div>
   <div class="card">
     <div class="ctrl">
       <span class="muted" style="font-size:12px">占比口径</span>
       <div class="seg" id="scoreSeg">
-        <button data-s="share" class="on">团队占比（默认）</button>
+        <button data-s="norm" class="on">团队占比·放大到 0~1（默认）</button>
+        <button data-s="share">团队占比·原式</button>
         <button data-s="rate">自身率值</button>
       </div>
     </div>
@@ -338,6 +339,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=33"></script>
+<script src="core_v24.js?v=34"></script>
 </body>
 </html>
