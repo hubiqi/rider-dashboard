@@ -1077,10 +1077,10 @@
         '<div style="text-align:right"><div style="font-size:20px;font-weight:800;color:'+scCol+'">'+fmt(st._sc,1)+'</div>'+
         '<div class="muted" style="font-size:11px">综合评价分</div></div></div>'+
         '<div class="mchips">'+
-          '<span title="非妥投率（不妥投失败的订单占比）">非妥投 <b style="color:#dc2626">'+pct(st.missR)+'</b></span>'+
+          '<span title="非妥投率（妥投失败的订单占比）">非妥投 <b style="color:#dc2626">'+pct(st.missR)+'</b></span>'+
           '<span title="预测T8准时率">T8 <b style="color:#0891b2">'+pct(st.t8R)+'</b></span>'+
           '<span title="单均复合超时时长">复合 <b style="color:#7c3aed">'+fmt(st.avgComp,1)+'s</b></span>'+
-          '<span title="不满意（非时效不满意度）">非时效 <b style="color:#d97706">'+pct(st.satR)+'</b></span>'+
+          '<span title="不满意（平台原名：非时效不满意度）">不满意 <b style="color:#d97706">'+pct(st.satR)+'</b></span>'+
           '<span title="超时率">超时 <b style="color:'+(worst?'#ef4444':'#10b981')+'">'+pct(st.r)+'</b></span>'+
         '</div>'+
         '<div style="font-size:11.5px;color:#475467">最新 <b>'+lp.t+'</b> 单 / 超时率 <b>'+pct(lp.r)+'</b> / 单均 <b>'+fmt(lp.c,1)+'</b>s</div>'+
