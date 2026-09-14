@@ -885,14 +885,19 @@
       '<th class="num">非时效占比</th><th>得分</th></tr>';
     var worst = rdArr.slice(0, 8);                        // 分最低 = 相对问题最多
     var best = rdArr.slice(-8).reverse();                  // 分最高
+    var overlap = rdArr.length <= worst.length + best.length;   // 骑手太少时两端会重复 → 只列一次
+    var rdBars = overlap
+      ? '<tr><td colspan="10" style="background:#f5f8ff;font-weight:700;color:#334155;padding:6px 8px">'+
+        '骑手共 '+rdArr.length+' 名（≤16，全部列出，按综合分降序）</td></tr>'+
+        rdArr.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('')
+      : '<tr><td colspan="10" style="background:#fef2f2;font-weight:700;color:#b91c1c;padding:6px 8px">⚠️ 综合分最低 '+worst.length+' 名（相对团队贡献的问题最多）</td></tr>'+
+        worst.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('')+
+        '<tr><td colspan="10" style="background:#ecfdf5;font-weight:700;color:#047857;padding:6px 8px">✅ 综合分最高 '+best.length+' 名</td></tr>'+
+        best.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('');
     $('#scoreSites').innerHTML = '<div style="overflow-x:auto"><table class="xtab"><thead>'+headSt+'</thead><tbody>'+
       stArr.map(function(x,i){ return scoreBar(x, ctxS, i, x.st.replace('福州','')) }).join('')+'</tbody></table></div>';
     $('#scoreRiders').innerHTML = '<div style="overflow-x:auto"><table class="xtab"><thead>'+head+'</thead><tbody>'+
-      '<tr><td colspan="10" style="background:#fef2f2;font-weight:700;color:#b91c1c;padding:6px 8px">⚠️ 综合分最低 '+worst.length+' 名（相对团队贡献的问题最多）</td></tr>'+
-      worst.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('')+
-      '<tr><td colspan="10" style="background:#ecfdf5;font-weight:700;color:#047857;padding:6px 8px">✅ 综合分最高 '+best.length+' 名</td></tr>'+
-      best.map(function(x,i){ return scoreBar(x, ctxR, i, x.n) }).join('')+
-      '</tbody></table></div>';
+      rdBars+'</tbody></table></div>';
     $('#scoreNote').innerHTML = '当前口径：<b>'+({norm:'团队占比·放大到 0~1（默认）',share:'团队占比·原式',rate:'自身率值'}[scoreMode])+'</b> · '+
       '筛选范围内 <b>'+rdArr.length+'</b> 名骑手（最少单量 ≥ '+scope.min+'）、<b>'+stArr.length+'</b> 个站点。'+
       (scoreMode==='rate'
