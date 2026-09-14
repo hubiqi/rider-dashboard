@@ -7,9 +7,9 @@
   /* ================= 状态 ================= */
   var sel = { f1:'all', f2:'all' };      // 标签筛选
   var scope = { day:'__all__', st:'__all__', min:5, q:'', rank:10 };   // rank=超时率前 N%（0=全部）
-  var sortKey = 'r', sortDir = -1;       // 默认按「超时率」降序（与排名筛选口径一致）
+  var sortKey = 'score', sortDir = 1;    // 默认：质量指标视图下按「综合评价分」升序（低分在前 = 最差在前）
   var metric = 'rate';
-  var view = 'timeout';                  // timeout=超时视图 · quality=质量指标视图
+  var view = 'quality';                  // timeout=超时视图 · quality=质量指标视图（默认）
   var scoreMode = 'tx';                  // tx=按占比（默认） · rate=自身率值（v41 起删除「团队占比·原式」）
   var SMODE_LAB = { tx:'按占比（默认）', rate:'自身率值' };
   /* 层级放大系数（仅作用于「按占比」口径）：amp = 系数 × 参与计分的对象数
@@ -61,7 +61,7 @@
     return {
       t:t, o:v[F.o]||0, s:comp, acc:acc, c: t? comp/t : 0, r: t? (v[F.o]||0)/t*100 : 0,
       missAdd:missAdd, missDen:missDen,
-      missR: missDen? missAdd/missDen*100 : 0,                   // 不完全妥投率 %
+      missR: missDen? missAdd/missDen*100 : 0,                   // 非妥投率 %（平台原名：不完全妥投率）
       fullR: missDen? t/missDen*100 : 0,                         // 完全妥投率 %
       t8Loss:t8Loss, t8Den:t8Den, t8Num:t8Num, t8hi:t8hi,
       t8R: t8Den? t8Num/t8Den*100 : 0,                           // 预测T8准时率 %
@@ -76,7 +76,7 @@
   /* 四个指标的「团队占比」= 加权分子 ÷ 团队加权分子（加权 = 平台公式系数，见口径说明） */
   function sharesOf(m, T){
     return {
-      s1: T && T.missAdd ? m.missAdd/T.missAdd*100 : 0,          // 不完全妥投
+      s1: T && T.missAdd ? m.missAdd/T.missAdd*100 : 0,          // 非妥投
       s2: T && T.t8Loss  ? m.t8Loss/T.t8Loss*100 : 0,            // T8超时（加权含高笔/虚假/提前点送达×2）
       s3: T && T.s       ? m.s/T.s*100 : 0,                      // 复合时长
       s4: T && T.satW    ? m.satW/T.satW*100 : 0                 // 非时效不满意（含×5加权）
@@ -86,7 +86,7 @@
      ①②③④ = 四项指标的「占比（0~1）」，两档口径：
        tx   （默认，「按占比」）= 该对象各项扣分 ÷ 全体同类对象该项扣分之和
                                    （各扣分对所有对象求和后算占比；权重在同级求和时约掉）
-       rate                   = 对象自身率值：不完全妥投率、T8超时率、单均复合÷团队均值、非时效不满意度
+       rate                   = 对象自身率值：非妥投率、T8超时率、单均复合÷团队均值、不满意
      ★ v41 已删除「团队占比·原式」（share，加权分子 ÷ 团队合计）：它随单量增长，等于按单量高低发分。 */
   function ratioRaw(m, ctx, mode){
     m = m || {}; var T = ctx.T || {}; mode = mode || scoreMode;
@@ -686,11 +686,11 @@
   /* ================= 趋势 ================= */
   var META = {
     rate:{key:'r', lab:'超时率', unit:'%', color:'#2563eb', dec:2},
-    miss:{key:'missR', lab:'不完全妥投率', unit:'%', color:'#dc2626', dec:2},
+    miss:{key:'missR', lab:'非妥投率', unit:'%', color:'#dc2626', dec:2},
     full:{key:'fullR', lab:'完全妥投率', unit:'%', color:'#059669', dec:2},
     t8:{key:'t8R', lab:'预测T8准时率', unit:'%', color:'#0891b2', dec:2},
     t8l:{key:'t8Late', lab:'T8超时率', unit:'%', color:'#be185d', dec:2},
-    sat:{key:'satR', lab:'非时效不满意度', unit:'%', color:'#d97706', dec:2},
+    sat:{key:'satR', lab:'不满意', unit:'%', color:'#d97706', dec:2},
     comp:{key:'c', lab:'单均复合', unit:'秒', color:'#7c3aed', dec:1},
     tot:{key:'t', lab:'单量', unit:'单', color:'#0ea5e9', dec:0}
   };
@@ -761,7 +761,21 @@
     this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
     b.classList.add('on'); drawTrend(LASTBYD);
   });
-  /* 表格视图切换：超时视图 / 质量指标视图 */
+  /* 表格视图切换：质量指标视图（默认） / 超时视图
+     ★ 排序按钮随视图重建：质量视图里的排序维度必须是本视图真实存在的列，
+       否则会出现「点按超时单，表里却看不到超时单列」的错位。 */
+  var SORT_BTNS = {
+    quality: [['score','按综合分'], ['missR','按非妥投率'], ['t8Late','按T8超时率'],
+              ['avgComp','按单均复合'], ['satR','按不满意']],
+    timeout: [['o','按超时单'], ['r','按超时率'], ['shareO','按超时占比'],
+              ['shareS','按复合占比'], ['score','按综合分']]
+  };
+  function buildSortSeg(){
+    var seg = $('#sortSeg'); if(!seg) return;
+    seg.innerHTML = SORT_BTNS[view].map(function(p){
+      return '<button data-s="'+p[0]+'"'+(p[0]===sortKey?' class="on"':'')+'>'+p[1]+'</button>';
+    }).join('');
+  }
   function syncSortSeg(){
     var seg = $('#sortSeg'); if(!seg) return;
     seg.querySelectorAll('button').forEach(function(b){
@@ -773,8 +787,10 @@
     view = b.getAttribute('data-v');
     this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
     b.classList.add('on');
-    sortKey = view==='quality' ? 'score' : 'r'; sortDir = -1;
-    syncSortSeg(); renderTable();
+    /* 质量指标视图默认按综合分「升序」（低分在前＝最差在前）；超时视图默认按超时率降序 */
+    sortKey = view==='quality' ? 'score' : 'r';
+    sortDir = view==='quality' ? 1 : -1;
+    buildSortSeg(); renderTable();
   });
   /* 综合评价分口径切换 */
   if($('#scoreSeg')) $('#scoreSeg').addEventListener('click', function(e){
@@ -795,8 +811,9 @@
     view = b.getAttribute('data-v');
     this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
     b.classList.add('on');
-    sortKey = view==='quality' ? 'score' : 'r'; sortDir = -1;
-    syncSortSeg(); renderTable();
+    sortKey = view==='quality' ? 'score' : 'r';
+    sortDir = view==='quality' ? 1 : -1;
+    buildSortSeg(); renderTable();
     var el = document.getElementById('riderRank');
     if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
   });
@@ -815,16 +832,16 @@
     var warn = '';
     if(D.legacy) warn = '<div class="note" style="color:#b45309">⚠️ 当前数据是本机缓存的<b>旧版数据</b>（不含四指标字段），下方四指标恒为 0 或不完整，'+
       '请点上方「⬆ 载入数据」重新上传 xlsx（考核明细或运单明细均可）。</div>';
-    else if(av.sat === false) warn = '<div class="note" style="color:#b45309">⚠️ 该数据源缺少「投诉 / 差评 / 索赔」列，④ 非时效不满意度按 0 计（该指标不可用）。</div>';
+    else if(av.sat === false) warn = '<div class="note" style="color:#b45309">⚠️ 该数据源缺少「投诉 / 差评 / 索赔」列，④ 不满意按 0 计（该指标不可用）。</div>';
     $('#mKpi').innerHTML =
       mcard('① 完全妥投率', pct(T.fullR), '', '加权未完成单 <b>'+Math.round(T.missAdd)+'</b>',
-            '不完全妥投率 <b style="color:#dc2626">'+pct(T.missR)+'</b>', '#059669') +
+            '非妥投率 <b style="color:#dc2626">'+pct(T.missR)+'</b>', '#059669') +
       mcard('② 预测T8准时率', pct(T.t8R), '', '加权超时单 <b>'+Math.round(T.t8Loss)+'</b>'+
             '（含高笔 '+Math.round(T.t8hi)+' · 提前点送达 '+Math.round(T.early)+'）',
             'T8超时率 <b style="color:#be185d">'+pct(T.t8Late)+'</b>', '#0891b2') +
       mcard('③ 单均复合超时时长', fmt(T.avgComp,1), 's', '复合合计 <b>'+hh(T.s)+'</b>',
             '有效完单 <b>'+T.t+'</b> 单', '#7c3aed') +
-      mcard('④ 非时效不满意度', pct(T.satR), '', '加权单 <b>'+Math.round(T.satW)+'</b>'+
+      mcard('④ 不满意', pct(T.satR), '', '加权单 <b>'+Math.round(T.satW)+'</b>'+
             '（投诉 '+T.cmpl+' ×5 · 差评 '+T.bad+' ×5 · 索赔 '+T.claim+' · 虚假报备 '+T.fakeCan+'）',
             '接单 <b>'+T.acc+'</b> 单', '#d97706');
     if($('#mWarn')) $('#mWarn').innerHTML = warn;
@@ -832,9 +849,9 @@
     // 四指标逐日明细
     $('#mTrendTable').innerHTML = byD && byD.length ?
       '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th>'+
-      '<th class="num">完全妥投率</th><th class="num">不完全妥投率</th><th class="num">加权未完成</th>'+
+      '<th class="num">完全妥投率</th><th class="num">非妥投率</th><th class="num">加权未完成</th>'+
       '<th class="num">T8准时率</th><th class="num">T8超时率</th><th class="num">加权超时</th>'+
-      '<th class="num">单均复合</th><th class="num">非时效不满意度</th><th class="num">加权单</th></tr></thead><tbody>'+
+      '<th class="num">单均复合</th><th class="num">不满意</th><th class="num">加权单</th></tr></thead><tbody>'+
       byD.map(function(x){
         var a = x.a;
         return '<tr'+(x.dt===D.last?' style="background:#f5f8ff"':'')+'>'+
@@ -856,9 +873,9 @@
     var r = ratioOf(m, ctx, md);
     var raw = ratioRaw(m, ctx, md);
     /* ★ amp 只在「按占比」口径里代入；rate 口径用的是自身率值，没有放大，
-       否则提示里会把率值再除一次（"不完全妥投率 0.06% → ×18.6 = 1.12%"这种假数据）。 */
+       否则提示里会把率值再除一次（"非妥投率 0.06% → ×18.6 = 1.12%"这种假数据）。 */
     var amp = (md === 'rate') ? 1 : ((ctx && ctx.amp) ? ctx.amp : 1);
-    var lab = md==='rate' ? ['不完全妥投率','T8超时率','单均复合÷团队均值','非时效不满意度']
+    var lab = md==='rate' ? ['非妥投率','T8超时率','单均复合÷团队均值','不满意']
                           : ['非妥投占比','T8占比','复合占比','非时效占比'];
     return { r1:r[0], r2:r[1], r3:r[2], r4:r[3],
              raw1:raw[0]/amp, raw2:raw[1]/amp, raw3:raw[2]/amp, raw4:raw[3]/amp,
@@ -996,7 +1013,7 @@
     $('#scoreNote').innerHTML = '当前口径：<b>'+SMODE_LAB[scoreMode]+'</b> · '+
       '筛选范围内 <b>'+rdArr.length+'</b> 名骑手（最少单量 ≥ '+scope.min+'）、<b>'+stArr.length+'</b> 个站点。'+
       (scoreMode==='rate'
-        ? '各指标用对象<b>自身率值</b>代入：不完全妥投率、T8超时率、单均复合÷团队均值（封顶 2）、非时效不满意度。'+
+        ? '各指标用对象<b>自身率值</b>代入：非妥投率、T8超时率、单均复合÷团队均值（封顶 2）、不满意。'+
           '★ <b>与单量规模无关</b> —— 单量大的站点问题量天然多，但不会再因此被判定为最差。'
         : '各指标用<b>该对象扣分 ÷ 全体同类对象该项扣分之和</b>代入（各项扣分先对全体求和、再算占比），'+
           '不受单量规模影响。'+
@@ -1060,10 +1077,10 @@
         '<div style="text-align:right"><div style="font-size:20px;font-weight:800;color:'+scCol+'">'+fmt(st._sc,1)+'</div>'+
         '<div class="muted" style="font-size:11px">综合评价分</div></div></div>'+
         '<div class="mchips">'+
-          '<span title="不完全妥投率（实际是妥投失败的订单）">非妥投 <b style="color:#dc2626">'+pct(st.missR)+'</b></span>'+
+          '<span title="非妥投率（不妥投失败的订单占比）">非妥投 <b style="color:#dc2626">'+pct(st.missR)+'</b></span>'+
           '<span title="预测T8准时率">T8 <b style="color:#0891b2">'+pct(st.t8R)+'</b></span>'+
           '<span title="单均复合超时时长">复合 <b style="color:#7c3aed">'+fmt(st.avgComp,1)+'s</b></span>'+
-          '<span title="非时效不满意度">非时效 <b style="color:#d97706">'+pct(st.satR)+'</b></span>'+
+          '<span title="不满意（非时效不满意度）">非时效 <b style="color:#d97706">'+pct(st.satR)+'</b></span>'+
           '<span title="超时率">超时 <b style="color:'+(worst?'#ef4444':'#10b981')+'">'+pct(st.r)+'</b></span>'+
         '</div>'+
         '<div style="font-size:11.5px;color:#475467">最新 <b>'+lp.t+'</b> 单 / 超时率 <b>'+pct(lp.r)+'</b> / 单均 <b>'+fmt(lp.c,1)+'</b>s</div>'+
@@ -1096,16 +1113,17 @@
     { k:'shareS', lab:'复合占比',    num:true },
     { k:'c',      lab:'单均复合',num:true }
   ];
-  /* 质量指标视图：四个考核指标 = 单数 / 团队占比 / 率值，另加综合评价分 */
+  /* 质量指标视图：综合评价分放最左（默认排序维度），其后是 排名/骑手/站点/单量，
+     再按四个考核指标分成四组，每组 = 单数 / 团队占比 / 率值 */
   var COLS_Q = [
+    { k:'score',  lab:'综合评价分',  num:true },
     { k:'idx',    lab:'综合排名',    num:false, sortable:false },
     { k:'n',      lab:'骑手',        num:false },
     { k:'st',     lab:'站点',        num:false },
     { k:'t',      lab:'单量',        num:true },
-    { k:'score',  lab:'综合评价分',  num:true },
     { k:'missAdd',lab:'非妥投·加权单', num:true },
     { k:'s1',     lab:'非妥投占比',    num:true },
-    { k:'missR',  lab:'不完全妥投率', num:true },
+    { k:'missR',  lab:'非妥投率',      num:true },
     { k:'t8W',    lab:'T8·加权超时', num:true },
     { k:'s2',     lab:'T8占比',      num:true },
     { k:'t8Late', lab:'T8超时率',    num:true },
@@ -1114,7 +1132,7 @@
     { k:'avgComp',lab:'单均复合',    num:true },
     { k:'satW',   lab:'非时效·加权单', num:true },
     { k:'s4',     lab:'非时效占比',  num:true },
-    { k:'satR',   lab:'非时效不满意度', num:true }
+    { k:'satR',   lab:'不满意',      num:true }
   ];
   function COLS(){ return view==='quality' ? COLS_Q : COLS_T }
   function renderTable(){
@@ -1196,11 +1214,11 @@
       $('#riderTable').querySelector('tbody').innerHTML = list.map(function(x){
         var scCol = x.score>=90 ? '#059669' : (x.score>=80 ? '#b45309' : '#dc2626');
         return '<tr class="rrow" data-ri="'+x.ri+'" title="展示范围内第 '+x.srk+' 名（综合分）· 全池综合分第 '+x.poolSrk+' 名 / 超时率第 '+x.poolRk+' 名">'+
+          '<td class="num" style="font-weight:800;color:'+scCol+'">'+fmt(x.score,1)+'</td>'+
           '<td><span class="rank'+(x.srk<=3?' t'+x.srk:'')+'">'+x.srk+'</span></td>'+
           '<td style="font-weight:600">'+esc(x.n)+'</td>'+
           '<td class="muted">'+esc(x.st)+'</td>'+
           '<td class="num">'+x.t+'</td>'+
-          '<td class="num" style="font-weight:800;color:'+scCol+'">'+fmt(x.score,1)+'</td>'+
           '<td class="num">'+Math.round(x.missAdd)+'</td>'+
           '<td class="num">'+pct(x.s1)+'</td>'+
           '<td class="num" style="color:#dc2626;font-weight:600">'+pct(x.missR)+'</td>'+
@@ -1231,9 +1249,9 @@
       }).join('');
     }
     var sortLab = view==='quality'
-      ? { idx:'综合排名', n:'骑手', st:'站点', t:'单量', score:'综合评价分', missAdd:'非妥投加权单', s1:'非妥投占比（团队原式）', missR:'不完全妥投率',
+      ? { score:'综合评价分', idx:'综合排名', n:'骑手', st:'站点', t:'单量', missAdd:'非妥投加权单', s1:'非妥投占比（团队原式）', missR:'非妥投率',
           t8W:'T8加权超时单', s2:'T8占比（团队原式）', t8Late:'T8超时率', s:'复合总时长', s3:'复合占比（团队原式）', avgComp:'单均复合',
-          satW:'非时效加权单', s4:'非时效占比（团队原式）', satR:'非时效不满意度' }
+          satW:'非时效加权单', s4:'非时效占比（团队原式）', satR:'不满意' }
       : { idx:'排名', n:'骑手', st:'站点', t:'单量', o:'超时单', r:'超时率', shareO:'超时占比', s:'复合总时长', shareS:'复合占比', c:'单均复合' };
     // ★ rankTxt 必须写在 sortLab 之后：var 提升会让 sortLab[k] 在赋值前取到 undefined 而抛错，
     //   那样本函数后续（说明文案）会静默跳过，表现为「说明永远停在初始状态」
@@ -1244,7 +1262,8 @@
     $('#tblNote').innerHTML = '<b style="color:#1d4ed8">👆 点任意一行骑手可查看逐日明细</b> · 当前：<b>'+(scope.day==='__all__'?'全周期':scope.day)+'</b> · '+
       '「'+(view==='quality'?'综合排名':'排名')+'」列 = <b>'+(view==='quality'?'当前展示范围内按综合分的名次（1 = 分最高）':'当前展示范围内按超时率的名次（1 = 超时率最高）')+'</b>（悬停某行可看全池名次）<br>'+
       '筛选：最少单量 ≥ '+scope.min+' · '+rankTxt+' · 实际展示 <b>'+list.length+'</b> 名 · '+
-      '排序：'+(sortLab[k]||k)+(dir>0?' ↑':' ↓')+
+      '排序：'+(sortLab[k]||k)+(dir>0?' ↑ 升序':' ↓ 降序')+
+      (view==='quality' && k==='score' && dir>0 ? '（默认：综合分低 → 高，最差在前）' : '')+
       ' · 占比分母=当前范围全部骑手（未完成加权 '+Math.round(T.missAdd)+' · T8加权超时 '+Math.round(T.t8Loss)+
       ' · 复合合计 '+Math.round(T.s)+'s · 非时效加权 '+Math.round(T.satW)+'）'+
       (view==='quality' ? '<br>综合评价分口径：<b>'+SMODE_LAB[scoreMode]+'</b> —— 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100；'+
@@ -1363,14 +1382,14 @@
       '<div class="mgrid">'+
         mc('综合评价分', '<span style="color:'+col+'">'+fmt(sc,1)+'</span>') +
         mc('① 完全妥投率', pct(m.fullR)) +
-        mc('① 不完全妥投率 <em>团队占比 '+pct(sh.s1)+'</em>', pct(m.missR)) +
+        mc('① 非妥投率 <em>团队占比 '+pct(sh.s1)+'</em>', pct(m.missR)) +
         mc('① 加权未完成单', Math.round(m.missAdd)) +
         mc('② 预测T8准时率', pct(m.t8R)) +
         mc('② T8超时率 <em>团队占比 '+pct(sh.s2)+'</em>', pct(m.t8Late)) +
         mc('② 加权超时单', Math.round(m.t8Loss)) +
         mc('③ 单均复合时长', fmt(m.avgComp,1)+'s') +
         mc('③ 复合时长 <em>团队占比 '+pct(sh.s3)+'</em>', Math.round(m.s)+'s') +
-        mc('④ 非时效不满意度', pct(m.satR)) +
+        mc('④ 不满意', pct(m.satR)) +
         mc('④ 非时效加权单 <em>团队占比 '+pct(sh.s4)+'</em>', Math.round(m.satW)) +
         mc('接单量 / 有效完单', m.acc+' / '+m.t) +
       '</div>';
@@ -1405,7 +1424,7 @@
       '<div class="mtabcap">📅 每日明细（整个周期）</div>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">超时单</th>'+
       '<th class="num">超时率</th><th class="num">完全妥投率</th><th class="num">T8准时率</th>'+
-      '<th class="num">单均复合</th><th class="num">非时效不满意</th></tr></thead><tbody>'+
+      '<th class="num">单均复合</th><th class="num">不满意</th></tr></thead><tbody>'+
         days.map(function(d){
           return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
             '<td class="num">'+pct(d.r)+'</td>'+
@@ -1452,7 +1471,7 @@
     var dayTab = '<div style="overflow-x:auto"><table><thead><tr>'+
       '<th>日期</th><th class="num">单量</th><th class="num">超时单</th><th class="num">超时率</th>'+
       '<th class="num">完全妥投率</th><th class="num">T8准时率</th><th class="num">单均复合</th>'+
-      '<th class="num">非时效不满意</th><th class="num">出勤骑手</th></tr></thead><tbody>'+
+      '<th class="num">不满意</th><th class="num">出勤骑手</th></tr></thead><tbody>'+
       days.map(function(d){
         return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
           '<td class="num" style="color:'+rateColor(d.r)+';font-weight:700">'+pct(d.r)+'</td>'+
@@ -1465,7 +1484,7 @@
     var rTab = '<div style="overflow-x:auto"><table><thead><tr>'+
       '<th>排名</th><th>骑手</th><th class="num">单量</th><th class="num">综合分</th><th class="num">超时单</th>'+
       '<th class="num">超时率</th><th class="num">完全妥投率</th><th class="num">T8准时率</th>'+
-      '<th class="num">单均复合</th><th class="num">非时效不满意</th><th class="num">超时占比</th></tr></thead><tbody>'+
+      '<th class="num">单均复合</th><th class="num">不满意</th><th class="num">超时占比</th></tr></thead><tbody>'+
       (rd.length ? rd.map(function(x,i){
         var sc = scoreOf(x, ctxAll);
         var col = sc>=90 ? '#059669' : (sc>=80 ? '#b45309' : '#dc2626');
@@ -1700,12 +1719,14 @@
   });
   $('#sortSeg').addEventListener('click', function(e){
     var b = e.target.closest('button'); if(!b) return;
-    sortKey = b.getAttribute('data-s'); sortDir = -1;
+    sortKey = b.getAttribute('data-s');
+    sortDir = (sortKey==='score') ? 1 : -1;      // 综合分默认升序（最差在前），其余指标降序
     this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
     b.classList.add('on'); renderTable();
   });
   function applyData(src){
     showDash();
+    buildSortSeg();
     scope.day = '__all__'; scope.st = '__all__'; scope.q = ''; scope.min = 5; scope.rank = 10;
     if($('#q')) $('#q').value = '';
     buildControls(); renderAll();
@@ -2105,13 +2126,13 @@
     '以上明细均不受上方日期筛选影响；'+
     '每个板块右上角「导出图片」可把该板块保存为 PNG；顶部可上传新的运单明细 xlsx，数据在本地浏览器解析，不会上传到任何服务器。'+
     '<br><br><b style="font-size:13px">四项考核指标（平台公式）</b>'+
-    '<br>① <b>完全妥投率</b> = 有效完单 ÷（有效完单 + 物流责未完成单 + 高笔单物流责未完成单×1 + 星巴克物流责未完成单×2 + 虚假报备出餐慢取消单 + 虚假改派吸单 + 虚假改派规避妥投单 + 提前点送达单×2）；页面展示其补数「<b>不完全妥投率</b>」。'+
+    '<br>① <b>完全妥投率</b> = 有效完单 ÷（有效完单 + 物流责未完成单 + 高笔单物流责未完成单×1 + 星巴克物流责未完成单×2 + 虚假报备出餐慢取消单 + 虚假改派吸单 + 虚假改派规避妥投单 + 提前点送达单×2）；页面展示其补数，统一称「<b>非妥投率</b>」（就是妥投失败的订单占比）。'+
     '<br>② <b>预测T8准时率</b> =（T8准时单 − 虚假报备出餐慢取消单 − 虚假改派偷准达 − 提前点送达单×2）÷（有效完单 + 高笔单T8非准时单×1 + 星巴克非准时单×2）；T8 超时 = 超平台期望送达时长 ≥ 480 秒（8 分钟）。'+
     '<br>③ <b>单均复合超时时长</b> = 复合超时时长合计 ÷ 剔除前有效完单（轻度 8~15 分钟 1 倍 / 普通 15~30 分钟 1.5 倍 / 严重 &gt;30 分钟 2 倍，封顶 90 分钟）。'+
-    '<br>④ <b>非时效不满意度</b> =（有效投诉单×5 + 有效差评单×5 + 有效索赔单 + 虚假报备出餐慢取消单）÷ 接单量。'+
+    '<br>④ <b>不满意</b>（非时效不满意度）=（有效投诉单×5 + 有效差评单×5 + 有效索赔单 + 虚假报备出餐慢取消单）÷ 接单量。'+
     '<br><b>团队占比</b>（骑手表「质量指标视图」、骑手/站点弹窗、综合评价分榜）= 该对象的<b>加权分子</b> ÷ 当前范围全部骑手的加权分子合计；'+
     '加权系数即平台公式里的 ×2 / ×5 —— 例如有效差评按 5 单计、提前点送达按 2 单计、高笔非准时按 2 单计入 T8 分母。'+
-    '<br><b>综合评价分 = 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100</b>（①不完全妥投 ②T8超时 ③单均复合时长 ④非时效不满意）；'+
+    '<br><b>综合评价分 = 100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100</b>（①非妥投 ②T8超时 ③单均复合时长 ④不满意）；'+
     '默认口径 <b>「按占比」</b>= 该对象各项扣分 ÷ 全体同类对象该项扣分之和（各项扣分先对全体求和、再算占比）—— '+
     '不受单量规模影响，订单多的站点不会因为「问题量天然多」被拉低。悬停榜单任意一行可看<b>扣分拆解</b>（每项「占比 × 权重 × 100 = 扣分」）。'+
     '<br>★ <b>层级放大</b>：占比的分母是团队全员合计，同一层级对象越多、单个占比越小（人均 = 1/N）—— '+
@@ -2123,7 +2144,7 @@
     '不加 100% 上限，避免把「贡献了团队一半以上问题量」和「刚好占满 1%」压成同一个数。'+
     '因此四项扣分合计<b>可以超过 100 分</b>，此时综合分夹在 <b>0</b>（只夹总分，不夹单项），'+
     '同为 0 分的骑手按「净扣分」从轻到重排名次，不会并列。'+
-    '另一档口径「<b>自身率值</b>」= ①不完全妥投率 ②T8超时率 ③单均复合÷团队均值（封顶 2）④非时效不满意度，完全与单量无关，用作交叉对照。'+
+    '另一档口径「<b>自身率值</b>」= ①非妥投率 ②T8超时率 ③单均复合÷团队均值（封顶 2）④不满意，完全与单量无关，用作交叉对照。'+
     '<br><b>团队综合分</b>（综合评价分板块的「团队扣分汇总」）= 各站点「扣分合计」按<b>单量占比</b>加权求和得到团队扣分，再取 100 − 团队扣分；'+
     '数值上等于「用团队整体率值算出的综合分」，所以团队分不会被站点数量多少影响。表内「占团队扣分」= 该站对团队扣分的贡献比重（各站合计 100%）。'+
     '<br><b>上传要求</b>：支持两种导出格式，自动识别 ——'+
@@ -2140,7 +2161,7 @@
   /* 启动：优先用内置数据（离线单文件版）；否则读本机缓存；都没有则显示空状态 */
   if(D){
     D = normalizeData(D);
-    showDash(); buildControls(); renderAll(); setStatus(dataSummary());
+    buildSortSeg(); showDash(); buildControls(); renderAll(); setStatus(dataSummary());
   } else {
     showEmpty();
     loadLocal().then(function(rec){
