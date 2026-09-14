@@ -157,6 +157,9 @@ tr.rrow:active{background:#f2f6ff}
 .mcell .kv{font-size:16px;font-weight:800;margin-top:2px}
 .mlegend{display:flex;gap:16px;font-size:11.5px;color:var(--sub);margin:6px 0 2px}
 .mlegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.mcell .kl em{font-style:normal;color:#98a2b3;font-size:10.5px}
+.mchips{display:flex;gap:6px;flex-wrap:wrap;font-size:11.5px;color:#475467}
+.mchips span{background:#f8fafc;border:1px solid #eef1f6;border-radius:8px;padding:3px 7px}
 .expbtn{margin-left:auto;flex:0 0 auto;border:1px solid var(--line);background:#fff;color:#475467;
   border-radius:8px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer;line-height:1.6}
 .expbtn:hover{border-color:#c7d2fe;color:var(--brand)}
@@ -225,12 +228,43 @@ tr.rrow:active{background:#f2f6ff}
   <div class="grid kpi" id="kpiAll"></div>
   </section>
 
+  <section class="mod" data-name="质量四指标与综合评价">
+  <div class="sec-title"><span class="dot"></span>质量四指标 <small>平台考核口径 · 随上方筛选联动</small></div>
+  <div class="grid kpi" id="mKpi"></div>
+  <div id="mWarn"></div>
+  <div class="card" style="margin-top:12px">
+    <div class="mtabcap" style="margin-top:0">📅 四指标逐日明细</div>
+    <div id="mTrendTable"></div>
+  </div>
+
+  <div class="sec-title"><span class="dot"></span>综合评价分 <small>100 −（0.2×不完全妥投占比 + 0.3×T8超时占比 + 0.15×复合时长占比 + 0.2×非时效不满意占比）×100</small></div>
+  <div class="card">
+    <div class="ctrl">
+      <span class="muted" style="font-size:12px">占比口径</span>
+      <div class="seg" id="scoreSeg">
+        <button data-s="share" class="on">团队占比（默认）</button>
+        <button data-s="rate">自身率值</button>
+      </div>
+    </div>
+    <div class="mtabcap" style="margin-top:4px">🏢 站点排行 <span style="font-weight:400;color:#98a2b3">按综合分升序，分低＝相对团队贡献的问题更多</span></div>
+    <div id="scoreSites"></div>
+    <div class="mtabcap">👥 骑手两端 <span style="font-weight:400;color:#98a2b3">综合分最低 8 名 / 最高 8 名 · 点行看逐日明细</span></div>
+    <div id="scoreRiders"></div>
+    <div class="note" id="scoreNote"></div>
+  </div>
+  </section>
+
   <section class="mod" data-name="日期变化趋势">
-  <div class="sec-title"><span class="dot"></span>日期变化趋势 <small>超时率 / 单均复合时长 / 单量</small></div>
+  <div class="sec-title"><span class="dot"></span>日期变化趋势 <small>超时率 / 四指标 / 单量</small></div>
   <div class="card">
     <div class="ctrl">
       <div class="seg" id="metricSeg">
         <button data-m="rate" class="on">超时率</button>
+        <button data-m="full">完全妥投率</button>
+        <button data-m="miss">不完全妥投率</button>
+        <button data-m="t8">预测T8准时率</button>
+        <button data-m="t8l">T8超时率</button>
+        <button data-m="sat">非时效不满意度</button>
         <button data-m="comp">单均复合时长</button>
         <button data-m="tot">单量</button>
       </div>
@@ -246,10 +280,14 @@ tr.rrow:active{background:#f2f6ff}
   <div class="grid" id="stationGrid" style="grid-template-columns:repeat(2,1fr)"></div>
   </section>
 
-  <section class="mod" data-name="骑手明细排行">
+  <section class="mod" data-name="骑手明细排行" id="riderRank">
   <div class="sec-title"><span class="dot"></span>骑手明细排行</div>
   <div class="card">
     <div class="ctrl">
+      <div class="seg" id="viewSeg">
+        <button data-v="timeout" class="on">超时视图</button>
+        <button data-v="quality">质量指标视图</button>
+      </div>
       <select id="daySel"></select>
       <select id="stSel"></select>
       <input type="search" id="q" placeholder="搜索骑手…">
@@ -271,6 +309,7 @@ tr.rrow:active{background:#f2f6ff}
         <button data-s="r" class="on">按超时率</button>
         <button data-s="shareO">按超时占比</button>
         <button data-s="shareS">按复合占比</button>
+        <button data-s="score">按综合分</button>
       </div>
     </div>
     <div class="scroll"><table id="riderTable"><thead></thead><tbody></tbody></table></div>
@@ -299,6 +338,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=31"></script>
+<script src="core_v24.js?v=32"></script>
 </body>
 </html>
