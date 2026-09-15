@@ -82,9 +82,17 @@ header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,
 .cinput{flex:1 1 190px;min-width:0;padding:7px 10px;border:1px solid #dbe2ea;border-radius:8px;
   font-size:12.5px;font-family:inherit;background:#fff}
 .cinput:focus{outline:none;border-color:#93b4f5;box-shadow:0 0 0 3px rgba(37,99,235,.10)}
+.chint{color:#94a3b8;font-size:11px;line-height:1.35;flex:0 0 auto}
 .cstate{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:#f1f5f9;color:#64748b;
   margin-left:auto;flex:0 0 auto}
-@media(max-width:470px){.cinput{flex:1 1 100%;order:3}}
+/* ★ 手机窄屏：字号 56px 的标签独占一行，输入框必须排在「解锁」按钮**左侧**。
+   之前写成 .cinput{flex:1 1 100%;order:3} → 输入框被甩到按钮后面，
+   用户看到的是「访问口令 [解锁]」+ 一行灰框，误以为「没地方输入口令」。 */
+@media(max-width:470px){
+  #cLockRow>.clab{flex:1 1 100%}
+  #cLockRow>.cinput{flex:1 1 110px}
+  #cLockRow>.chint{flex:1 1 100%}
+}
 @media(max-width:470px){.cinfo{flex:1 1 100%;order:3;margin-top:2px}}
 .cstate.ok{background:#ecfdf5;color:#047857}
 .cok{font-size:12px;font-weight:700;color:#047857;white-space:nowrap}
@@ -291,8 +299,9 @@ tr.rrow:active{background:#f2f6ff}
     <!-- 未解锁：提交一次密钥（提交后立刻清空输入框；密钥不会存进浏览器） -->
     <div class="crow" id="cLockRow">
       <span class="clab">访问口令</span>
-      <input type="password" id="cToken" class="cinput" inputmode="numeric" placeholder="输入访问口令（只需一次，之后本浏览器自动记住）" autocomplete="off">
+      <input type="password" id="cToken" class="cinput" inputmode="numeric" placeholder="输入访问口令" autocomplete="off">
       <button class="btn" id="cSave">解锁</button>
+      <span class="chint">只需输入一次，之后本浏览器自动记住</span>
     </div>
     <!-- 已解锁：浏览器只持有 HttpOnly 会话凭证，页面脚本读不到密钥 -->
     <div class="crow" id="cUnlockRow" style="display:none">
