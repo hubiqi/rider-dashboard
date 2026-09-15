@@ -383,6 +383,62 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
   background:#101828;color:#fff;font-size:12.5px;padding:9px 16px;border-radius:22px;
   opacity:0;pointer-events:none;transition:.22s;z-index:80;max-width:82vw;text-align:center}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* ══════════════════════════════════════════════════════════════════════
+   排版统一（对齐 · 层级 · 节奏）
+   思路借鉴专业数据看板：数字对齐、留白分组、渐进披露（低频内容收起）
+   ══════════════════════════════════════════════════════════════════════ */
+/* ★ 数字统一等宽：看板里最影响观感的就是「数字列对不齐」，table 里尤其明显 */
+body{font-variant-numeric:tabular-nums}
+
+/* 章节标题：收紧留白、副标题降噪，让数据本身成为主角（原来 12 个标题都很重） */
+.sec-title{margin:22px 4px 10px;font-size:14.5px}
+.sec-title small{font-size:11.5px;color:#8a94a6}
+
+/* 卡片：细边框替代重阴影 —— 专业看板靠「留白 + 细线」分组，不靠阴影堆叠 */
+.card{border:1px solid #edf0f5;box-shadow:0 1px 2px rgba(16,24,40,.03)}
+
+/* 章节横幅：更紧凑，减少与内容争视觉重心 */
+.chapter{margin:26px 0 2px;padding:11px 15px}
+.chapter .ctxt b{font-size:15px;letter-spacing:.3px}
+.chapter .cnum{width:24px;height:24px;font-size:13px}
+
+/* ── 可折叠模块：标题条本身就是开关 ──
+   低频/分析型内容默认收起，首屏只留「答案级」信息（渐进披露） */
+/* 收起状态 = 一个「可以点开的抽屉」：浅底 + 细边，和展开的模块一眼区分 */
+details.mod>summary.sec-title{list-style:none;cursor:pointer;user-select:none;
+  padding:8px 11px;margin:14px 0 6px;border-radius:10px;color:#5b6675;
+  background:#fafbfd;border:1px solid #eef1f6;transition:background .15s,border-color .15s}
+details.mod>summary.sec-title::-webkit-details-marker{display:none}
+details.mod>summary.sec-title:hover{background:#f2f6fd;border-color:#dbe7ff;color:var(--brand)}
+details.mod>summary.sec-title::after{content:'▸';order:1;flex:0 0 auto;margin-left:8px;
+  font-size:13px;line-height:1;color:#9aa4b2}
+details.mod[open]>summary.sec-title::after{content:'▾'}
+/* 展开后回到普通章节标题的样式（去掉抽屉外观） */
+details.mod[open]>summary.sec-title{background:transparent;border-color:transparent;
+  padding:2px 4px;margin:22px 0 10px;color:var(--ink);cursor:default}
+details.mod[open]>summary.sec-title:hover{background:transparent;color:var(--ink)}
+/* 导出按钮排在最后（标题条末尾）；收起时隐藏 —— 收起了就没什么可导 */
+details.mod>summary.sec-title .expbtn{order:2}
+details.mod:not([open]) .expbtn{display:none}
+
+/* ── 首屏密度 ──
+   看板的首屏应该尽快看到「数据」，而不是系统信息。
+   顶部（标题 / 数据范围 / D1 用量 / 数据源 / 云同步 / 筛选）全部压紧，
+   内容起始位置从 ~534px 提到 ~430px 以内。 */
+header.hero{padding:18px 18px;border-radius:16px}
+header.hero h1{font-size:18px;letter-spacing:.3px}
+header.hero .navback{margin-bottom:8px;padding:3px 9px;font-size:11.5px}
+header.hero .range{font-size:12px;margin-top:5px}
+header.hero .badge{margin-top:9px;padding:3px 9px;font-size:11.5px}
+header.hero .quota{margin-top:7px;gap:5px}
+header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px}
+
+/* 卡片内边距统一收一档（KPI 卡有自己的覆盖，不受影响） */
+.card{padding:14px}
+.upstatus{font-size:11px;line-height:1.5}
+
+/* KPI 大数字：略收字距，读起来更稳 */
+.kpi .val{letter-spacing:-.7px}
 </style>
 </head>
 <body class="offline">
@@ -569,12 +625,12 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
   </div>
   </section>
 
-  <section class="mod" data-name="卡餐二呼影响">
-  <div class="sec-title"><span class="dot"></span>卡餐 / 二呼单影响 <small>剔除这些单后，超时率与单均复合会变成多少</small></div>
+  <details class="mod collapsible" data-name="卡餐二呼影响">
+  <summary class="sec-title"><span class="dot"></span>卡餐 / 二呼单影响 <small>剔除这些单后，超时率与单均复合会变成多少</small></summary>
   <div class="card">
     <div id="impactTeam"></div>
   </div>
-  </section>
+  </details>
 
 <section class="mod" data-name="团队综合分">
   <div class="sec-title"><span class="dot"></span>团队综合分 <small>100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100</small></div>
@@ -596,8 +652,8 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
   </div>
   </section>
 
-  <section class="mod" data-name="剔除明细">
-  <div class="sec-title"><span class="dot"></span>剔除明细 <small id="exclTag"></small></div>
+  <details class="mod collapsible" data-name="剔除明细">
+  <summary class="sec-title"><span class="dot"></span>剔除明细 <small id="exclTag"></small></summary>
   <div class="card">
     <div id="exclSummary"></div>
     <div class="seg" id="exclSeg" style="margin-top:12px">
@@ -610,7 +666,7 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
     <div class="fbody"><div class="note" id="exclNote"></div></div>
     </details>
   </div>
-  </section>
+  </details>
   <!-- ══════════════════════ 二、站点 ══════════════════════ -->
   <div class="chapter" id="ch2">
     <span class="cnum">2</span>
@@ -618,12 +674,12 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
   </div>
   <div class="card" id="ch2Sum" style="margin-top:8px"></div>
 
-  <section class="mod" data-name="站点卡餐二呼影响">
-  <div class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small>各站超时里有多少是商家出餐慢（卡餐）造成的</small></div>
+  <details class="mod collapsible" data-name="站点卡餐二呼影响">
+  <summary class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small>各站超时里有多少是商家出餐慢（卡餐）造成的</small></summary>
   <div class="card">
     <div id="impactStation"></div>
   </div>
-  </section>
+  </details>
 
 <section class="mod" data-name="站点维度">
   <div class="sec-title"><span class="dot"></span>站点维度 <small>全周期对比 + 最新表现 · 点卡片看整周期明细</small></div>
@@ -689,8 +745,8 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
   </div>
   </section>
 
-  <section class="mod" data-name="骑手综合分两端">
-  <div class="sec-title"><span class="dot"></span>骑手综合分两端 <small>最低 8 名 / 最高 8 名（由低到高排列）</small></div>
+  <details class="mod collapsible" data-name="骑手综合分两端">
+  <summary class="sec-title"><span class="dot"></span>骑手综合分两端 <small>最低 8 名 / 最高 8 名（由低到高排列）</small></summary>
   <div class="card">
     <div class="ctrl">
       <span class="muted" style="font-size:12px">计分口径</span>
@@ -704,7 +760,7 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
     </details>
     <div id="scoreRiders"></div>
   </div>
-  </section>
+  </details>
 
   </div><!-- /dashBody -->
 
