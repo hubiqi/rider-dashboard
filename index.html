@@ -2151,6 +2151,24 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       navigator.clipboard.writeText(t).then(ok, fb);
     } else fb();
   }
+  /* 明细覆盖情况说明：解释「为什么点开是空的」并告诉用户怎么补齐 */
+  function anomCoverNote(){
+    var ad = D && D.anomDays;
+    if(D && D.anomLegacy){
+      return '<div class="note" style="border-left:3px solid #dc2626;background:#fef2f2;margin-top:10px">'+
+        '⚠️ 有 <b>'+D.anomLegacy+'</b> 条旧格式的运单明细被忽略了 —— '+
+        '早期版本把「上传时的行号」当骑手身份存了下来，行号顺序与云端稳定序号不一致，'+
+        '按序号解读会<b>把运单号归到错误的骑手</b>（总量对得上但人和单对不上），所以宁可不显示。'+
+        '<br><b>重新上传一次原始报表</b>即可正常显示（新格式会按骑手ID存，不会错位）。</div>';
+    }
+    if(ad && ad.length && (!D.dates || ad.length < D.dates.length)){
+      return '<div class="note" style="border-left:3px solid #f59e0b;background:#fffbeb;margin-top:10px">'+
+        '⚠️ 运单明细目前只覆盖 <b>'+ad.length+' / '+D.dates.length+'</b> 天'+
+        '（明细是后加的能力，早先上传的数据里没有）。'+
+        '<b>重新上传一次原始报表</b>即可把全部日期的运单号补齐。</div>';
+    }
+    return '';
+  }
   function openAnom(ri, kind){
     var meta = ANOM_META[kind]; if(!meta) return;
     var dts = dayList();
@@ -2171,14 +2189,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
            '云端累积的只存了聚合计数（每天/骑手 × 15 个计数），不含运单号。'+
            '要看具体运单号，请直接<b>上传原始报表</b>（运单明细/考核明细）。</div>';
     } else if(!rows.length){
-      var cov = '', ad = D.anomDays;
-      if(ad && ad.length && ad.length < D.dates.length){
-        cov = '<div class="note" style="border-left:3px solid #f59e0b;background:#fffbeb;margin-top:10px">'+
-              '⚠️ 运单明细目前只覆盖 <b>'+ad.length+' / '+D.dates.length+'</b> 天'+
-              '（明细是后加的能力，早先上传的数据里没有）。'+
-              '<b>重新上传一次原始报表</b>即可把全部日期的运单号补齐。</div>';
-      }
-      h += '<div class="empty">该骑手在当前范围内没有这类异常单</div>' + cov;
+      h += '<div class="empty">该骑手在当前范围内没有这类异常单</div>' + anomCoverNote();
     } else {
       h += '<div class="scroll" style="max-height:52vh"><table><thead><tr>'+
            '<th>日期</th><th>运单号</th><th>命中原因</th><th style="text-align:right">计分</th>'+
@@ -2194,6 +2205,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       '（加权是「分数」不是「张数」：同一张单命中多个标记会叠加）'+
       (function(){
         var ad = D.anomDays;
+        if(D.anomLegacy)
+          return '<br><span style="color:#b45309">⚠️ 另有 '+D.anomLegacy+
+                 ' 条旧格式明细已忽略（骑手归属不可信）—— 重新上传一次原始报表即可修正</span>';
         if(ad && ad.length && ad.length < D.dates.length)
           return '<br><span style="color:#b45309">⚠️ 运单明细目前只覆盖 '+ad.length+' / '+D.dates.length+
                  ' 天（早先上传的数据没有明细）—— 重新上传一次原始报表即可补齐全部日期</span>';
@@ -2904,6 +2918,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     if(!dat.warns) dat.warns = [];                 // 口径告警（缺失时补齐，避免渲染报错）
     if(!dat.anom) dat.anom = [];                   // 异常运单明细（云端数据没有 → 退化为不可点）
     if(!dat.anomDays) dat.anomDays = null;         // 哪些天上传过明细（null = 未知）
+    if(dat.anomLegacy == null) dat.anomLegacy = 0;  // 被忽略的旧格式明细条数
     var stride = dat.nf || 0;
     if(!stride){
       var c = null;
@@ -3193,15 +3208,79 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     cloud.meta.excl = sums;
     return cloud;
   }
+  /* ★★ 运单明细的合并（2026-09-15 修）
+     ── 之前的写法 ──
+     `if(local.anom.length && !cloud.anom.length) cloud.anom = local.anom`
+     —— 只要**云端有明细**（哪怕只覆盖 1 天），本机完整的明细就会被丢掉、换成云端那份残缺的。
+     用户的实际表现就是：「本地数据正常，但云端同步下来又异常了」。
+     ── 现在的做法 ──
+     按 (天, 骑手, 运单号) 做并集：同一条以云端为准，本机独有的补上。
+     并同步合并 anomDays（哪些天有明细），保证覆盖率提示不失真。 */
+  /* ★★ 重做去重口径（用户 2026-09-15）：
+     ── 之前的问题 ──
+     key 写成「天|骑手|运单号|**编码**」，把**内容也算进了身份**。
+     于是同一个运单号只要内容更新（编码变了），就会被当成**另一条记录**并存，
+     而不是覆盖 —— 结果重复计数、明细里同号出现多行。
+     ── 现在的口径 ──
+     身份 = 天 + 骑手 + 运单号（运单号全局唯一）；
+     **整条内容**（编码 + 是否妥投）用来判断「是否真的重复」：
+       · 整条完全一样 → 跳过（重复）
+       · 整条有变化   → **覆盖**成新内容（这样单条数据结构更新也能生效）
+     冲突时以**本机**为准（本机是刚解析出来的，更新）。 */
+  function anomIdentity(r){ return r[0] + '|' + r[1] + '|' + r[2] }
+  function anomContent(r){ return r[3] + '|' + (r[4] ? 1 : 0) }
+  function mergeAnom(cloud, local){
+    var l = (local && local.anom) || [], c = (cloud && cloud.anom) || [];
+    if(!l.length && !c.length) return cloud;
+    var at = {}, out = [];
+    function put(r, fromLocal){
+      if(!r || r.length < 5) return;
+      var k = anomIdentity(r), i = at[k];
+      if(i === undefined){ at[k] = out.length; out.push(r); return }
+      var prev = out[i];
+      if(anomContent(prev) === anomContent(r)) return;   // 整条一样 → 真重复，跳过
+      if(fromLocal) out[i] = r;                          // 内容有更新 → 覆盖
+    }
+    c.forEach(function(r){ put(r, false) });             // 云端先铺底
+    l.forEach(function(r){ put(r, true) });              // 本机覆盖 + 补缺
+    cloud.anom = out;
+
+    /* anomDays 取并集：只要本机或云端某天有明细，就算「已覆盖」 */
+    var days = {}, i;
+    [cloud.anomDays, local && local.anomDays].forEach(function(arr){
+      if(arr && arr.length) for(i=0;i<arr.length;i++) days[arr[i]] = 1;
+    });
+    if(!Object.keys(days).length){
+      /* 旧数据可能没有 anomDays 字段：用明细里出现过的天兜底 */
+      for(i=0;i<out.length;i++) days[out[i][0]] = 1;
+    }
+    var ks = Object.keys(days).map(Number).sort(function(a,b){ return a-b });
+    cloud.anomDays = ks.length ? ks : null;
+    return cloud;
+  }
   function allDayIdx(data){
     var a = []; for(var i=0;i<(data.dates||[]).length;i++) a.push(i); return a;
   }
-  /* 取出指定天序号范围内的异常运单明细（记录形如 [天序号, 骑手序号, 运单号, 编码, 妥投]） */
+  /* 取出指定天序号范围内的异常运单明细（记录形如 [天序号, 骑手行号, 运单号, 编码, 妥投]）
+     ★★ 上传时把「骑手行号」换成**稳定的 rid**：行号只在一次上传内自洽，
+        服务端若按行号存，换一次数据顺序明细就会归错骑手（用户 2026-09-15 反馈的「同步下来异常」）。 */
   function pickAnom(data, idxs){
     var all = data.anom; if(!all || !all.length) return null;
     var set = {}; for(var i=0;i<idxs.length;i++) set[idxs[i]] = 1;
-    var out = [];
-    for(var k=0;k<all.length;k++){ if(set[all[k][0]]) out.push(all[k]) }
+    var out = [], at = {};
+    for(var k=0;k<all.length;k++){
+      var r = all[k];
+      if(!set[r[0]]) continue;
+      /* ★★ 载荷里所有内容统一用「payload 内下标」表示（grid 行首也是下标），
+         由**服务端**在同一个请求内把下标映射成稳定 rid 再落库 —— 这样换设备/换顺序都不会错位。
+         ⚠️ 曾经在这里改成直接发 rid，与服务端的「下标 → rid」映射方向相反，
+            导致服务端查不到骑手、**明细全被丢弃**（表现就是「本地正常、同步下来异常」）。 */
+      var rec = [r[0], r[1], r[2], r[3], r[4]];
+      /* ★ 同一口径去重：身份 = 天+骑手+运单号；整条有变化 → 用后出现的那条覆盖 */
+      var key = anomIdentity(rec), i = at[key];
+      if(i === undefined){ at[key] = out.length; out.push(rec) }
+      else if(anomContent(out[i]) !== anomContent(rec)) out[i] = rec;
+    }
     return out.length ? out : null;
   }
   function pickExclByDate(data, idxs){
@@ -3284,7 +3363,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       var j = await cApi('/api/data');
       var d = normalizeData(j.data);
       mergeExcl(d, D);          // ★ 本机的剔除构成不能因为一次拉取就丢掉
-      if(D && D.anom && D.anom.length && !(d.anom && d.anom.length)) d.anom = D.anom;  // 运单明细同理
+      mergeAnom(d, D);          // ★ 运单明细按天并集（云端只有部分天时，不能把本机完整的换掉）
       if(!d.dates || !d.dates.length){
         if(!silent) setStatus('云端暂无数据');
         await cRefreshStatus();
@@ -3327,6 +3406,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         if(!(payload.anom && payload.anom.length)) delete payload.anom;
         payload.exclByDate = pickExclByDate(D, allIdx);
         if(payload.anom && payload.anom.length){
+          payload.anom = pickAnom(D, allIdx);          // ★ 行号 → 稳定 rid
           payload.anomDates = D.dates.slice();
           payload.anomDays = (D.anomDays || []).slice();
         }
@@ -3339,12 +3419,17 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         var anOnly = pickAnom(D, allDayIdx(D));
         if(exOnly || anOnly){
           try{
+            /* ★ riders 必须带上：服务端要用它把明细里的 rid 映射成云端稳定序号 */
             var body = { v: D.v, nf: D.nf || 15, dates: [], last: D.last || '',
-                         riders: [], grid: [], avail: D.avail || {} };
+                         riders: D.riders || [], grid: [], avail: D.avail || {} };
             if(exOnly) body.exclByDate = exOnly;
             /* ★★ 明细也必须一起补！否则「运单号明细」永远只覆盖最初上传的那一天，
                点开别天/别列的加权数只会看到「没有这类异常单」（用户 2026-09-15 反馈）。 */
-            if(anOnly){ body.anom = anOnly; body.anomDates = D.dates.slice() }   /* 天序号 → 日期的映射 */
+            if(anOnly){
+              body.anom = anOnly;
+              body.anomDates = D.dates.slice();                    /* 天序号 → 日期的映射 */
+              if(D.anomDays && D.anomDays.length) body.anomDays = D.anomDays.slice();  /* 哪些天真的解析过 */
+            }
             await cApi('/api/upload', {
               method: 'POST',
               body: { payload: body },   /* 不传 src：避免在「数据来源」列表里多出一条 */
@@ -3368,9 +3453,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       if(rep.updated) parts.push('<b style="color:#b45309">更新 ' + rep.updated + ' 天</b>');
       if(rep.skipped) parts.push('<b style="color:#64748b">服务端跳过 ' + rep.skipped + ' 天</b>');
       var merged = normalizeData(j.data);
-      /* ★ 云端不存运单级明细 → 推送后若直接采用云端结果，本机刚解析出的运单号会被清空。
-         这里把本机的 anom 带回合并结果（云端本来就只负责聚合数据）。 */
-      if(D && D.anom && D.anom.length && !(merged.anom && merged.anom.length)) merged.anom = D.anom;
+      /* ★ 推送后把本机的明细与云端结果合并（并集）：
+         即使用户刚上传了完整明细，也不能让云端那份（可能只覆盖部分天）把它覆盖掉。 */
+      mergeAnom(merged, D);
       if(merged.dates && merged.dates.length){
         D = merged;
         applyData(true);
