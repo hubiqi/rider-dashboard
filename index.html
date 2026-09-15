@@ -2167,7 +2167,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
            '云端累积的只存了聚合计数（每天/骑手 × 15 个计数），不含运单号。'+
            '要看具体运单号，请直接<b>上传原始报表</b>（运单明细/考核明细）。</div>';
     } else if(!rows.length){
-      h += '<div class="empty">该骑手在当前范围内没有这类异常单</div>';
+      var cov = '', ad = D.anomDays;
+      if(ad && ad.length && ad.length < D.dates.length){
+        cov = '<div class="note" style="border-left:3px solid #f59e0b;background:#fffbeb;margin-top:10px">'+
+              '⚠️ 运单明细目前只覆盖 <b>'+ad.length+' / '+D.dates.length+'</b> 天'+
+              '（明细是后加的能力，早先上传的数据里没有）。'+
+              '<b>重新上传一次原始报表</b>即可把全部日期的运单号补齐。</div>';
+      }
+      h += '<div class="empty">该骑手在当前范围内没有这类异常单</div>' + cov;
     } else {
       h += '<div class="scroll" style="max-height:52vh"><table><thead><tr>'+
            '<th>日期</th><th>运单号</th><th>命中原因</th><th style="text-align:right">计分</th>'+
@@ -2180,7 +2187,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
           '<td style="text-align:right;font-weight:600">'+r.hit+'</td></tr>';
       }).join('') + '</tbody></table></div>'+
       '<div class="muted" style="margin-top:10px">共 <b>'+rows.length+'</b> 张异常单 · 合计加权 <b>'+sum+'</b>'+
-      '（加权是「分数」不是「张数」：同一张单命中多个标记会叠加）</div>'+
+      '（加权是「分数」不是「张数」：同一张单命中多个标记会叠加）'+
+      (function(){
+        var ad = D.anomDays;
+        if(ad && ad.length && ad.length < D.dates.length)
+          return '<br><span style="color:#b45309">⚠️ 运单明细目前只覆盖 '+ad.length+' / '+D.dates.length+
+                 ' 天（早先上传的数据没有明细）—— 重新上传一次原始报表即可补齐全部日期</span>';
+        return '';
+      })()+'</div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
       '<button class="btn" id="anomCopy1">📋 复制全部运单号</button>'+
       '<button class="btn ghost" id="anomCopy2">📋 复制运单号＋原因</button>'+
@@ -2885,6 +2899,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     if(!dat || !dat.grid) return dat;
     if(!dat.warns) dat.warns = [];                 // 口径告警（缺失时补齐，避免渲染报错）
     if(!dat.anom) dat.anom = [];                   // 异常运单明细（云端数据没有 → 退化为不可点）
+    if(!dat.anomDays) dat.anomDays = null;         // 哪些天上传过明细（null = 未知）
     var stride = dat.nf || 0;
     if(!stride){
       var c = null;
@@ -3133,7 +3148,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       avail: data.avail || {},
       /* ★ 异常运单明细：只带**本次上传的这些天**（云端按天存进 days.anom / 归档后进 rider_days.anom 列）。
          这样换设备/清缓存后仍能看到运单号；体积可控（异常单本来就少）。 */
-      anom: pickAnom(data, idxs),
+      anom: pickAnom(data, allDayIdx(data)),
       /* ★ 剔除构成也要上传：否则云端同步后「剔除明细」整块空白（它读的是 excl）。
          每天都带上（不分是否在本次上传范围内）—— 它极小（每天 4 个数字），
          服务端按天 upsert，重复传不会累加；若只传变化的那几天，其余天的构成永远补不齐。 */
@@ -3309,13 +3324,18 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
            它是后加的字段，老库的 day_excl 表还是空的；不补的话「剔除明细」会一直空白。
            载荷极小（每天 4 个数字），且服务端按天 upsert，重复传不会累加。 */
         var exOnly = pickExclByDate(D, allDayIdx(D));
-        if(exOnly){
+        var anOnly = pickAnom(D, allDayIdx(D));
+        if(exOnly || anOnly){
           try{
+            var body = { v: D.v, nf: D.nf || 15, dates: [], last: D.last || '',
+                         riders: [], grid: [], avail: D.avail || {} };
+            if(exOnly) body.exclByDate = exOnly;
+            /* ★★ 明细也必须一起补！否则「运单号明细」永远只覆盖最初上传的那一天，
+               点开别天/别列的加权数只会看到「没有这类异常单」（用户 2026-09-15 反馈）。 */
+            if(anOnly){ body.anom = anOnly; body.anomDates = D.dates.slice() }   /* 天序号 → 日期的映射 */
             await cApi('/api/upload', {
               method: 'POST',
-              body: { payload: { v: D.v, nf: D.nf || 15, dates: [], last: D.last || '',
-                                 riders: [], grid: [], avail: D.avail || {},
-                                 exclByDate: exOnly } },   /* 不传 src：避免在「数据来源」列表里多出一条 */
+              body: { payload: body },   /* 不传 src：避免在「数据来源」列表里多出一条 */
             });
           }catch(e){ /* 补传失败不影响主流程 */ }
         }
@@ -3413,7 +3433,15 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       if(st.unlocked){
         cState('已连接', 'ok');
         await cRefreshStatus();
-        if(!(D && D.dates && D.dates.length)) await cPull(true);
+        /* ★★ 不只在本机「没有数据」时才拉：本机缓存可能是旧版本存的，
+           缺「运单明细 anom」或「剔除构成 excl」—— 那样点开加权数只会看到
+           「没有运单级明细」，而云端其实早有（用户 2026-09-15 反馈的情形）。
+           这里判断：本机为空、或缺这两块里任意一块，就补拉一次。 */
+        var needPull = !(D && D.dates && D.dates.length) ||
+                       !(D.anom && D.anom.length) ||
+                       D.anomDays === undefined || D.anomDays === null ||   // 旧缓存没有该字段
+                       !(D.excl && D.excl.total);
+        if(needPull) await cPull(true);
       }else{
         cState('未解锁');
       }
