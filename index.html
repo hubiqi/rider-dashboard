@@ -1152,6 +1152,26 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var d = new Date(v); if(!isNaN(d)) return d.toISOString().slice(0,10);
     return v;
   }
+  /* 取消责任方 解析：写法是「类别(责任方)」，如「物流责(代理商)」「物流责(商户)」。
+     ★ 判定物流责必须看**括号里的责任方是否为代理商**，而不是看类别
+       （类别可能都写「物流责」，但责任方是商户/用户的不该算物流责）。 */
+  function respInfo(raw){
+    var t = String(raw == null ? '' : raw).trim();
+    var m = t.match(/[（(]\s*([^）)]*?)\s*[）)]/);
+    return { raw: t, cat: m ? t.slice(0, m.index).trim() : t, party: m ? m[1].trim() : '' };
+  }
+  function isAgentFault(raw){
+    var r = respInfo(raw);
+    if(!r.raw) return false;
+    if(r.party) return /代理商|代理/.test(r.party);        // 有括号 → 只看责任方
+    return /代理商|代理/.test(r.cat) || /^物流责/.test(r.cat);   // 无括号 → 兼容旧写法
+  }
+  function isNoFaultResp(raw){
+    var r = respInfo(raw);
+    if(!r.raw) return false;
+    if(r.party) return /^(用户|商户|商家|客户|顾客)$/.test(r.party);
+    return /^(用户责|商户责|商家责)/.test(r.cat);
+  }
   function truthy(v){ v=String(v).trim().toLowerCase(); return v==='是'||v==='1'||v==='true'||v==='y'; }
   /* 有效差评判定：考核明细 =「是否差评单」；运单明细 =「用户评价等级」为吐槽/差评 */
   function badEval(v){
@@ -1184,7 +1204,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var td = new TextDecoder('utf-8');
     var s = { buf:'', hdr:null, idx:null, rows:0, dates:{}, riders:{}, order:[], grid:{},
               skip:{ nofault:0, fault:0, undeliv:0, other:0 }, exclRows:[], warns:[],
-              anom:{}, anomN:0 };
+              anom:{}, anomN:0, respSeen:null };
     function handleRow(xml){
       var cells = parseRow(xml, shared);
       if(!s.hdr){
@@ -1297,9 +1317,21 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         if(String(cells[s.idx.status]||'').trim() !== '配送成功'){
           kept = false;
           var rsp = s.idx.resp>=0 ? String(cells[s.idx.resp]||'').trim() : '';
-          if(rsp==='用户责' || rsp==='商户责'){ s.skip.nofault++; kind='nofault'; }  // 无责取消
-          else if(rsp.indexOf('物流责')>=0){   s.skip.fault++;   kind='fault'; fault=true; }
-          else {                               s.skip.undeliv++; kind='undeliv'; } // 在途未送达
+          /* ★★ 口径修正（用户 2026-09-15 指出）：取消责任方 的写法是「类别(责任方)」，
+             例如「物流责(代理商)」—— **括号里的责任方才是判定依据**。
+             原来的 `rsp.indexOf('物流责')>=0` 只看类别，于是责任方是商户/用户的单
+             也被算成了物流责（考核分被算多了）。
+             现在的规则：物流责 ⟺ 责任方 = 代理商；责任方是用户/商户的按「无责取消」处理。 */
+          if(isAgentFault(rsp)){               s.skip.fault++;   kind='fault'; fault=true; }
+          else if(isNoFaultResp(rsp)){         s.skip.nofault++; kind='nofault'; }
+          else {
+            s.skip.undeliv++; kind='undeliv';                                       // 在途未送达
+            /* 责任方写法没见过的 → 记下来给用户看（避免静默误判） */
+            if(rsp && !/^\(?\s*\)?$/.test(rsp)){
+              if(!s.respSeen) s.respSeen = {};
+              s.respSeen[rsp] = (s.respSeen[rsp] || 0) + 1;
+            }
+          }
         }
       }else if(s.idx.toudou>=0){                  // 旧格式：是否妥投单
         if(!truthy(cells[s.idx.toudou])){
@@ -1431,7 +1463,16 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
                sat: (s.idx.cmpl>=0 && s.idx.bad>=0 && s.idx.claim>=0),
                early: s.idx.early>=0, brand: s.idx.brand>=0 },
       fmt: s.fmt,
-      warns: s.warns,
+      warns: (function(){
+        var w = s.warns.slice();
+        if(s.respSeen){
+          var ks = Object.keys(s.respSeen);
+          if(ks.length) w.push('发现未识别的「取消责任方」写法：<b>'+
+            ks.slice(0,6).map(function(k){ return esc(k) }).join('、')+'</b>'+
+            ' —— 这些单被归入「在途未送达」。若其中本属物流责，请告知以便补入口径。');
+        }
+        return w;
+      })(),
       meta: { total: s.rows, acc: accN, to: to, comp: Math.round(comp), src: file.name, excl: s.skip }
     };
   }
@@ -3090,6 +3131,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       riders: data.riders,
       grid: idxs.map(function(i){ return data.grid[i] }),
       avail: data.avail || {},
+      /* ★ 异常运单明细：只带**本次上传的这些天**（云端按天存进 days.anom / 归档后进 rider_days.anom 列）。
+         这样换设备/清缓存后仍能看到运单号；体积可控（异常单本来就少）。 */
+      anom: pickAnom(data, idxs),
       /* ★ 剔除构成也要上传：否则云端同步后「剔除明细」整块空白（它读的是 excl）。
          每天都带上（不分是否在本次上传范围内）—— 它极小（每天 4 个数字），
          服务端按天 upsert，重复传不会累加；若只传变化的那几天，其余天的构成永远补不齐。 */
@@ -3128,6 +3172,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   }
   function allDayIdx(data){
     var a = []; for(var i=0;i<(data.dates||[]).length;i++) a.push(i); return a;
+  }
+  /* 取出指定天序号范围内的异常运单明细（记录形如 [天序号, 骑手序号, 运单号, 编码, 妥投]） */
+  function pickAnom(data, idxs){
+    var all = data.anom; if(!all || !all.length) return null;
+    var set = {}; for(var i=0;i<idxs.length;i++) set[idxs[i]] = 1;
+    var out = [];
+    for(var k=0;k<all.length;k++){ if(set[all[k][0]]) out.push(all[k]) }
+    return out.length ? out : null;
   }
   function pickExclByDate(data, idxs){
     var src = (data.excl && data.excl.byDate) || null;
@@ -3246,9 +3298,10 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         payload = {};
         for(var kk in D){
           if(!Object.prototype.hasOwnProperty.call(D, kk)) continue;
-          if(kk === 'anom') continue;              // ★ 运单明细只留本机，不上云（会让请求体暴涨被拒）
           payload[kk] = D[kk];
         }
+        /* 首传才走这里，明细一并带上（云端按天存两列，不动原有 cells 结构） */
+        if(!(payload.anom && payload.anom.length)) delete payload.anom;
         payload.exclByDate = pickExclByDate(D, allIdx);
       }
       if(payload === null){
@@ -3803,7 +3856,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   var EKIND = [
     { k:'nofault', lab:'无责取消', s:'无责', col:'#0ea5e9', hint:'用户/商户取消' },
     { k:'other',   lab:'其他未妥投', s:'其他', col:'#94a3b8', hint:'旧格式未标原因' },
-    { k:'fault',   lab:'物流责取消', s:'物流责', col:'#f59e0b', hint:'判定物流责任' },
+    { k:'fault',   lab:'物流责取消', s:'物流责', col:'#f59e0b',
+      hint:'判定依据：取消责任方 = 代理商（如「物流责(代理商)」）。责任方是商户/用户的按无责取消处理' },
     { k:'undeliv', lab:'在途未送达', s:'在途', col:'#f43f5e', hint:'导出时仍在途' }
   ];
   var EK = EKIND.map(function(x){ return x.k });
@@ -4048,6 +4102,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   $('#method').innerHTML =
     '<b>指标口径</b>：① <b>超时单</b>=「超平台期望送达时长」≥ 8 分钟（480 秒）的运单；'+
     '② <b>超时率</b>=超时单量 ÷ 总单量；<b>单量仅统计「配送成功」运单</b>，已剔除取消单（无责取消 / 物流责取消）与在途未送达单；'+
+    '<br>　<b>取消单怎么分类</b>：看「取消责任方」，其写法为「类别(责任方)」——'+
+    '<b>责任方是代理商</b>的（如「物流责(代理商)」）才算<b>物流责取消</b>；'+
+    '责任方是<b>商户或用户</b>的（「物流责(商户)」「商户责(商户)」「用户责(用户)」等）一律按<b>无责取消</b>处理，不计入物流责。'+
     '③ <b>日期基准</b>=运单终态日（即送达日期），跨零点的夜间单归入实际送达当天；'+
     '④ <b>复合时长</b>=按分段累加计费模型折算的超时时长；'+
     '⑤ <b>超时占比</b>=该骑手超时单 ÷ 当前范围全部骑手超时单；'+
