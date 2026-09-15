@@ -2061,6 +2061,170 @@
     this.querySelectorAll('button').forEach(function(x){ x.classList.remove('on') });
     b.classList.add('on'); renderTable();
   });
+  /* ================= 云同步（Cloudflare Pages Functions + KV） =================
+     数据存在用户自己的 Cloudflare 账号里；读写均需令牌（不在页面里硬编码）。
+     存储单元 = 一天，按内容哈希去重 → 新日期追加 / 相同跳过 / 变更覆盖。
+     版本兼容：入库前把每天的行补齐到 NF=15（老版本字段少 → 补 0），与 normalizeData 同一套口径。 */
+  var CLOUD_API = 'https://hubiqi-dashboard.pages.dev';
+  var CTOKEN_KEY = 'dashCloudToken';
+  var cBusy = false;
+
+  function ctoken(){ try{ return localStorage.getItem(CTOKEN_KEY) || '' }catch(e){ return '' } }
+  function csetToken(t){
+    try{ t ? localStorage.setItem(CTOKEN_KEY, t) : localStorage.removeItem(CTOKEN_KEY) }catch(e){}
+  }
+  function cAuto(){
+    var el = $('#cAuto'); return !!(el && el.checked);
+  }
+  function cState(txt, cls){
+    var el = $('#cState'); if(!el) return;
+    el.textContent = txt;
+    el.className = 'cstate' + (cls ? ' ' + cls : '');
+  }
+  async function cApi(path, opt){
+    opt = opt || {};
+    var h = { 'content-type': 'application/json' };
+    var t = ctoken(); if(t) h['x-dash-token'] = t;
+    var r, j;
+    try{
+      r = await fetch(CLOUD_API + path, {
+        method: opt.method || 'GET', headers: h,
+        body: opt.body ? JSON.stringify(opt.body) : undefined,
+      });
+    }catch(e){
+      throw new Error('无法连接云端（网络或跨域问题）');
+    }
+    try{ j = await r.json() }catch(e){ throw new Error('云端返回异常（HTTP '+r.status+'）') }
+    if(!r.ok || !j.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+    return j;
+  }
+  /* 云端概况 → 面板信息 */
+  async function cRefreshStatus(){
+    if(!ctoken()){ cState('未配置'); $('#cInfo').textContent = '—'; return null }
+    try{
+      var j = await cApi('/api/status');
+      var txt = j.days
+        ? '已存 <b>' + j.days + '</b> 天（' + String(j.first).slice(5) + '~' + String(j.last).slice(5) + '）· <b>' + j.riders + '</b> 名骑手'
+        : '云端暂无数据';
+      if(j.updatedAt){
+        var dt = new Date(j.updatedAt);
+        var p2 = function(v){ return (v<10?'0':'')+v };
+        txt += ' · 最后更新 ' + (dt.getMonth()+1) + '/' + dt.getDate() + ' ' + p2(dt.getHours()) + ':' + p2(dt.getMinutes());
+      }
+      $('#cInfo').innerHTML = txt;
+      cState('已连接', 'ok');
+      return j;
+    }catch(e){
+      $('#cInfo').textContent = '读取失败：' + e.message;
+      cState('连接失败', 'bad');
+      return null;
+    }
+  }
+  /* 从云端拉取并应用（云端是历次上传的累积 → 最完整） */
+  async function cPull(silent){
+    if(!ctoken()){ if(!silent) setStatus('⚠️ 请先填入云同步令牌', true); return false }
+    try{
+      if(!silent) setStatus('⏳ 正在从云端载入…');
+      var j = await cApi('/api/data');
+      var d = normalizeData(j.data);
+      if(!d.dates || !d.dates.length){
+        if(!silent) setStatus('云端暂无数据');
+        await cRefreshStatus();
+        return false;
+      }
+      D = d;
+      applyData(true);
+      var where = await saveLocal(D).catch(function(){ return null });
+      cState('已连接', 'ok');
+      setStatus('☁️ 已从云端载入：' + dataSummary() + (where ? ' · 已存本机' : ''));
+      await cRefreshStatus();
+      return true;
+    }catch(e){
+      cState('连接失败', 'bad');
+      if(!silent) setStatus('❌ 云端载入失败：' + esc(e.message), true);
+      return false;
+    }
+  }
+  /* 把当前数据推送到云端（增量合并），随后用云端合并结果刷新本机 */
+  async function cPush(label){
+    if(!ctoken()){ setStatus('⚠️ 请先填入云同步令牌', true); return false }
+    if(!D || !D.dates || !D.dates.length){ setStatus('⚠️ 本机没有可上传的数据', true); return false }
+    try{
+      setStatus('⏳ 正在同步到云端…');
+      var j = await cApi('/api/upload', {
+        method: 'POST',
+        body: { payload: D, src: label || '本机数据' },
+      });
+      var rep = j.report || {};
+      var parts = [];
+      if(rep.added)   parts.push('<b style="color:#059669">新增 ' + rep.added + ' 天</b>');
+      if(rep.updated) parts.push('<b style="color:#b45309">更新 ' + rep.updated + ' 天</b>');
+      if(rep.skipped) parts.push('<b style="color:#64748b">跳过 ' + rep.skipped + ' 天（内容相同）</b>');
+      var merged = normalizeData(j.data);
+      if(merged.dates && merged.dates.length){
+        D = merged;
+        applyData(true);
+        await saveLocal(D).catch(function(){});
+      }
+      await cRefreshStatus();
+      var total = (j.data && j.data.dates) ? j.data.dates.length : 0;
+      setStatus('☁️ 云端同步完成：' + (parts.join(' · ') || '无变化') + ' · 云端累计 <b>' + total + '</b> 天 · ' + dataSummary());
+      return true;
+    }catch(e){
+      setStatus('❌ 云端同步失败：' + esc(e.message), true);
+      cState('连接失败', 'bad');
+      return false;
+    }
+  }
+
+  /* ---------- 云同步面板事件 ----------
+     ★ 必须放在云同步的 var 定义之后：var 会提升但赋值不会，
+       放在前面会让 CTOKEN_KEY 还是 undefined → 静默读不到令牌 */
+  (function bindCloud(){
+    if(!$('#cToken')) return;
+    var saved = ctoken();
+    if(saved) $('#cToken').value = saved;
+    var autoEl = $('#cAuto');
+    try{ autoEl.checked = localStorage.getItem('dashCloudAuto') !== '0' }catch(e){}
+    autoEl.addEventListener('change', function(){
+      try{ localStorage.setItem('dashCloudAuto', autoEl.checked ? '1' : '0') }catch(e){}
+    });
+    var saveTok = async function(){
+      var v = $('#cToken').value.trim();
+      if(!v){ cState('未配置'); return }
+      csetToken(v);
+      var st = await cRefreshStatus();
+      if(st && st.days){
+        var ok = await cPull(true);
+        if(ok) setStatus('☁️ 已切换到云端数据：' + dataSummary());
+      }else{
+        setStatus('✅ 令牌已保存到本机 · 云端暂无数据，下次上传 xlsx 会自动同步');
+      }
+    };
+    $('#cSave').addEventListener('click', saveTok);
+    $('#cToken').addEventListener('change', saveTok);
+    $('#cToken').addEventListener('keydown', function(e){ if(e.key === 'Enter') saveTok() });
+    $('#cForget').addEventListener('click', function(){
+      csetToken(''); $('#cToken').value = '';
+      cState('未配置'); $('#cInfo').textContent = '—';
+      setStatus('已忘记本机保存的令牌（云端数据未删除）');
+    });
+    $('#cLoad').addEventListener('click', function(){ if(!cBusy){ cBusy = true; cPull(false).then(function(){ cBusy = false }) } });
+    $('#cPush').addEventListener('click', function(){ if(!cBusy){ cBusy = true; cPush('手动推送').then(function(){ cBusy = false }) } });
+    $('#cReset').addEventListener('click', async function(){
+      if(!ctoken()){ setStatus('⚠️ 请先填入云同步令牌', true); return }
+      if(!confirm('确定要清空云端的全部数据吗？\n\n此操作不可撤销（本机数据不受影响），清空后需要重新上传历史文件。')) return;
+      if(!confirm('再次确认：清空云端所有已存日期？')) return;
+      try{
+        setStatus('⏳ 正在清空云端…');
+        var j = await cApi('/api/reset', { method: 'POST' });
+        await cRefreshStatus();
+        setStatus('🗑 已清空云端（' + j.cleared + ' 天）· 本机数据仍在');
+      }catch(e){ setStatus('❌ 清空失败：' + esc(e.message), true) }
+    });
+    if(saved) cRefreshStatus();
+  })();
+
   function applyData(src){
     showDash();
     buildSortSeg();
@@ -2093,6 +2257,8 @@
         setStatus('⚠️ 已载入 <b>'+esc(f.name)+'</b>：'+dataSummary()+' · <span style="color:#b45309">本机保存失败：'+esc(String(store).slice(4))+'</span>');
       else
         setStatus('✅ 已载入 <b>'+esc(f.name)+'</b>：'+dataSummary()+' · <b>已存本机</b>，下次打开自动恢复');
+      // ★ 云端增量同步：只把「这次文件里的日期」拿去合并，历史数据在云端累积
+      if(ctoken() && cAuto()) await cPush(f.name);
     } catch(err){
       setStatus('❌ 载入失败：'+esc(err.message), true);
     }
@@ -2666,7 +2832,16 @@
         buildSortSeg();          // ★ 排序按钮按当前视图生成，恢复数据这条路径也必须建一次
         showDash(); buildControls(); renderAll();
         setStatus('✅ 已从本机恢复数据（保存于 '+fmtTime(rec.savedAt)+'）：'+dataSummary());
+        if(ctoken()) cPull(true);          // 有令牌则拉云端覆盖（云端是历次上传的累积，最完整）
+      }else if(ctoken()){
+        /* ★ 本机没有数据但配了云端（换设备 / 清了浏览器缓存 / 首次打开）→ 自动从云端载入 */
+        cPull(true).then(function(ok){
+          if(!ok) setStatus('尚无数据 · 本机为空且云端暂无数据，请点「⬆ 载入数据」上传 xlsx');
+        });
       }
-    }).catch(function(){ /* 保持空状态 */ });
+    }).catch(function(){
+      // 本机存储不可用（隐私模式等）→ 只要配了云端，仍可正常使用
+      if(ctoken()) cPull(true);
+    });
   }
 })();
