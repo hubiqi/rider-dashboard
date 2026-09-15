@@ -793,12 +793,23 @@
     buildSortSeg(); renderTable();
   });
   /* 综合评价分口径切换 */
-  if($('#scoreSeg')) $('#scoreSeg').addEventListener('click', function(e){
-    var b = e.target.closest('button'); if(!b) return;
-    var md = b.getAttribute('data-s');
-    if(!SMODE_LAB[md]) return;                 // 只接受已知口径（share 已于 v41 移除）
-    scoreMode = md;
-    renderScore(); renderStations(); renderTable();
+  /* 计分口径选择器：三个维度各放一份（团队 / 站点 / 骑手），点任意一个三处一起切换并同步高亮 */
+  function syncScoreSeg(){
+    document.querySelectorAll('.scoreSeg').forEach(function(seg){
+      seg.querySelectorAll('button').forEach(function(b){
+        b.classList.toggle('on', b.getAttribute('data-s') === scoreMode);
+      });
+    });
+  }
+  document.querySelectorAll('.scoreSeg').forEach(function(seg){
+    seg.addEventListener('click', function(e){
+      var b = e.target.closest('button'); if(!b) return;
+      var md = b.getAttribute('data-s');
+      if(!SMODE_LAB[md]) return;               // 只接受已知口径（share 已于 v41 移除）
+      scoreMode = md;
+      syncScoreSeg();
+      renderScore(); renderStations(); renderTable();
+    });
   });
   /* 综合评价分榜里的骑手行也能点开明细 */
   if($('#scoreRiders')) $('#scoreRiders').addEventListener('click', function(e){
@@ -1136,10 +1147,7 @@
         '站点榜的四列 = <b>计分代入值</b>（站点层级不放大）→ 可直接复算。'+
       '<br>鼠标悬停任意一行可看<b>扣分拆解</b>（团队占比 → 计分代入值 × 权重 × 100 = 扣几分，四项之和 = 100 − 综合分）。'+
       '<br>点任一行骑手可查看其逐日明细。';
-    var seg = $('#scoreSeg');
-    if(seg) seg.querySelectorAll('button').forEach(function(b){
-      b.classList.toggle('on', b.getAttribute('data-s')===scoreMode);
-    });
+    syncScoreSeg();   // 三处（团队/站点/骑手）口径按钮一起高亮
   }
 
   /* ================= 站点 ================= */
