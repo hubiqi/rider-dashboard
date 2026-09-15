@@ -76,6 +76,11 @@ header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,
 .mixrow em{font-style:normal;color:#98a2b3;margin-left:auto;font-size:10px;white-space:nowrap;
   flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:400px){.mixrow em{font-size:10px}}
+.mixnote{margin-top:10px;padding:9px 12px;border-radius:10px;background:#fbfcfe;border:1px solid #eef1f6;
+  font-size:11.5px;line-height:1.85;color:#64748b}
+.mixnote b{color:#334155}
+.mixnote i{display:inline-block;width:7px;height:7px;border-radius:2px;margin:0 3px 0 1px;vertical-align:-1px}
+.mixnote code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:11px;color:#0f172a}
 .up{color:var(--danger)}.down{color:var(--ok)}
 .pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600}
 .pill.r{background:#fef2f2;color:#b91c1c}.pill.g{background:#ecfdf5;color:#047857}
@@ -285,11 +290,27 @@ tr.rrow:active{background:#f2f6ff}
   <section class="mod" data-name="昨日最新情况">
   <div class="sec-title"><span class="dot"></span>昨日最新情况 <small id="lastTag"></small></div>
   <div class="grid kpi" id="kpiLast"></div>
+  <div class="mixnote">
+    <b>三行怎么读</b>：<i style="background:#7c3aed"></i>二呼 / <i style="background:#dc2626"></i>卡餐 / <i style="background:#059669"></i>正常 ——
+    <b>二呼、卡餐两行的「超时率」「单均复合」是<u>对大盘的影响值</u></b>（不是该类型自身的率），
+    算法：<code>影响占比 × 该类型自身均值 × 大盘单量 ÷ (大盘单量 − 该类型单量)</code>，
+    化简即 <code>该类型总量 ÷ (大盘单量 − 该类型单量)</code>；
+    行尾「占超时 / 占复合 x%」是该类型对大盘该项<b>总量的贡献占比</b>。<br>
+    「正常单」= 卡餐与二呼都排除的剩余池，显示<b>自身率值</b>（它本身就是剔除坏单后的基准）。悬停任一行可看该类型自身的率。
+  </div>
   </section>
 
   <section class="mod" data-name="全周期概览">
   <div class="sec-title"><span class="dot"></span>全周期概览</div>
   <div class="grid kpi" id="kpiAll"></div>
+  <div class="mixnote">
+    <b>三行怎么读</b>：<i style="background:#7c3aed"></i>二呼 / <i style="background:#dc2626"></i>卡餐 / <i style="background:#059669"></i>正常 ——
+    <b>二呼、卡餐两行的「超时率」「单均复合」是<u>对大盘的影响值</u></b>（不是该类型自身的率），
+    算法：<code>影响占比 × 该类型自身均值 × 大盘单量 ÷ (大盘单量 − 该类型单量)</code>，
+    化简即 <code>该类型总量 ÷ (大盘单量 − 该类型单量)</code>；
+    行尾「占超时 / 占复合 x%」是该类型对大盘该项<b>总量的贡献占比</b>。<br>
+    「正常单」= 卡餐与二呼都排除的剩余池，显示<b>自身率值</b>（它本身就是剔除坏单后的基准）。悬停任一行可看该类型自身的率。
+  </div>
   </section>
 
   <section class="mod" data-name="质量四指标">
@@ -452,6 +473,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=50"></script>
+<script src="core_v24.js?v=51"></script>
 </body>
 </html>
