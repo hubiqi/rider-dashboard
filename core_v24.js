@@ -282,6 +282,21 @@
     MIX3.forEach(function(x){ o[x.key] = aggScope(x.s, dts) });
     return o;
   }
+  /* 「对大盘的影响」（v50 修订，用户口径）：
+       影响 = 影响占比 × 该类型自身均值 × 大盘单量/(大盘单量 − 该类型单量)
+       其中 影响占比 = 该类型单量 ÷ 大盘单量
+       ★ 化简后 = 该类型总量 ÷ (大盘单量 − 该类型单量)：
+         超时 → 该类型超时单 ÷ (总单量 − 该类型单量)，单位「%」= 对大盘超时率的贡献
+         复合 → 该类型复合总时长 ÷ (总单量 − 该类型单量)，单位「秒」= 对大盘单均复合的贡献
+       只作用于「二呼 / 卡餐」两行；「正常单」显示其自身率值（它是坏单剔除后的剩余池，本身即基准）。 */
+  function impactOf(m, base, kind){
+    var den = base.t - m.t;
+    if(den <= 0) return 0;
+    var share = base.t ? m.t/base.t : 0;                  // ① 影响占比
+    var boost = base.t/den;                               // ③ 总订单/(总订单−该类型)
+    if(kind === 'c') return share * m.avgComp * boost;    // ② × 单均复合（秒）
+    return share * (m.t ? m.o/m.t : 0) * boost * 100;     // ② × 自身超时率（%）
+  }
   /* metric: 't' 单量 · 'r' 超时率 · 'o' 超时单 · 'c' 单均复合 · 'range' 超时率区间 */
   function mixRows(mk, metric){
     var av = D.avail || {};
@@ -289,21 +304,30 @@
     var base = mk.all;
     return '<div class="mixbox">' + MIX3.map(function(x){
       var m = mk[x.key]; if(!m) return '';
-      var val, tail = '';
+      var isImpact = (x.key !== 'norm');                   // 二呼 / 卡餐 → 影响值；正常 → 自身率值
+      var val, tail = '', tip;
       if(metric === 't'){
         val = m.t + ' 单';
         tail = '占单量 ' + (base.t ? (m.t/base.t*100).toFixed(1) : '0.0') + '%';
+        tip = x.lab+'单 '+val+'（'+tail+'）';
       } else if(metric === 'o'){
         val = m.o + ' 单';
         tail = '占超时 ' + (base.o ? (m.o/base.o*100).toFixed(1) : '0.0') + '%';
+        tip = x.lab+'单超时 '+val+'（'+tail+'）';
       } else if(metric === 'c'){
-        val = fmt(m.c,1) + ' 秒';
+        val = isImpact ? fmt(impactOf(m, base, 'c'),1)+' 秒' : fmt(m.avgComp,1)+' 秒';
         tail = '占复合 ' + (base.s ? (m.s/base.s*100).toFixed(1) : '0.0') + '%';
+        tip = isImpact
+          ? x.lab+'单对大盘单均复合的影响 '+val+'\n（该类型自身单均复合 '+fmt(m.avgComp,1)+' 秒；'+tail+'）'
+          : x.lab+'单自身单均复合 '+val+'（'+tail+'）';
       } else {   // 'r'
-        val = pct(m.r);
+        val = isImpact ? fmt(impactOf(m, base, 'r'),2)+'%' : pct(m.r);
         tail = '占超时 ' + (base.o ? (m.o/base.o*100).toFixed(1) : '0.0') + '%';
+        tip = isImpact
+          ? x.lab+'单对大盘超时率的影响 '+val+'\n（该类型自身超时率 '+pct(m.r)+'；'+tail+'）'
+          : x.lab+'单自身超时率 '+val+'（'+tail+'）';
       }
-      return '<div class="mixrow" title="'+escA(x.lab+'单：'+val+'（'+tail+'）')+'">'+
+      return '<div class="mixrow"'+(isImpact?' data-imp="1"':'')+' title="'+escA(tip)+'">'+
         '<i style="background:'+x.color+'"></i><span>'+x.lab+'</span>'+
         '<b style="color:'+x.color+'">'+val+'</b><em>'+tail+'</em></div>';
     }).join('') + '</div>';
@@ -313,10 +337,16 @@
     var av = D.avail || {};
     if(av.f1 === false && av.f2 === false) return '';
     return '<div class="mixbox">' + MIX3.map(function(x){
-      var vals = byD.map(function(d){ return d[x.key] ? d[x.key].r : 0 });
+      var isImpact = (x.key !== 'norm');
+      // 逐日按同一口径算（二呼/卡餐 = 当日影响值；正常 = 当日自身率值），再取区间
+      var vals = byD.map(function(d){
+        if(!d[x.key] || !d.a) return 0;
+        return isImpact ? impactOf(d[x.key], d.a, 'r') : (d[x.key].r || 0);
+      });
       var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals);
       var avg = byD.length ? vals.reduce(function(a,b){ return a+b }, 0)/byD.length : 0;
-      return '<div class="mixrow" title="'+escA(x.lab+'单超时率区间：'+fmt(mn,2)+'% ~ '+fmt(mx,2)+'%')+'">'+
+      return '<div class="mixrow"'+(isImpact?' data-imp="1"':'')+
+        ' title="'+escA(x.lab+'单对大盘超时率的影响区间：'+fmt(mn,2)+'% ~ '+fmt(mx,2)+'%')+'">'+
         '<i style="background:'+x.color+'"></i><span>'+x.lab+'</span>'+
         '<b style="color:'+x.color+'">'+fmt(mn,1)+'~'+fmt(mx,1)+'%</b>'+
         '<em>均 '+fmt(avg,1)+'%</em></div>';
