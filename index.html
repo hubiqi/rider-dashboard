@@ -332,6 +332,8 @@ tr.rrow:active{background:#f2f6ff}
       <button class="btn ghost" id="clrBtn" title="清除本机保存的数据">🗑 清空</button>
       <span id="upStatus" class="upstatus"></span>
     </div>
+    <!-- ★ 口径告警常驻区：解析期发现的口径问题长期显示，不会被状态栏刷新覆盖（如缺「运单状态」列） -->
+    <div id="warnBox" style="display:none"></div>
   </div>
 
   <!-- ══════════════ 云同步（Cloudflare D1 长期存储，增量去重） ══════════════
@@ -1164,7 +1166,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var rd = openEntry(z, sheetName).getReader();
     var td = new TextDecoder('utf-8');
     var s = { buf:'', hdr:null, idx:null, rows:0, dates:{}, riders:{}, order:[], grid:{},
-              skip:{ nofault:0, fault:0, undeliv:0, other:0 }, exclRows:[] };
+              skip:{ nofault:0, fault:0, undeliv:0, other:0 }, exclRows:[], warns:[] };
     function handleRow(xml){
       var cells = parseRow(xml, shared);
       if(!s.hdr){
@@ -1214,8 +1216,15 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         if(s.idx.comp<0 && s.idx.overDur<0 && s.idx.overSec<0)
           miss.push('复合超时时长（秒） 或 超时秒数（用于分层计费）');
         if(miss.length) throw new Error('缺少必需列：'+miss.join('、'));
-        if(s.idx.status<0 && s.idx.toudou<0)
+        if(s.idx.status<0 && s.idx.toudou<0){
+          /* ★★ 这条警告以前只调 setStatus，随后会被「✅ 已载入…」覆盖 —— 用户永远看不到，
+             而它恰恰是最要紧的口径告警（缺这一列 = 取消/未送达单会混进单量与四指标）。
+             现在同时存进 s.warns，载入完成后常驻显示在「数据源」卡片里。 */
+          s.warns.push('未找到「运单状态」/「是否妥投单」列 —— <b>无法剔除取消与未送达单</b>：'
+                     + '没有运单完成时间的订单会被计入单量与四指标，<b>单量口径偏大、超时率与不满意会被拉偏</b>。'
+                     + '请改用带该列的报表（运单明细 / 考核明细）。');
           setStatus('⚠️ 未找到「运单状态」/「是否妥投单」列，<b>无法剔除取消与未送达单</b>，单量口径可能偏大', true);
+        }
         s.fmt = s.idx.overDur>=0 ? '超平台期望送达时长≥480s'
               : (s.idx.overSec>=0 ? '超时秒数≥480s' : '考核口径（是否准时单）');
         s.fmt += ' · 日期=运单终态日 · 已剔除取消/未妥投';
@@ -1361,6 +1370,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
                sat: (s.idx.cmpl>=0 && s.idx.bad>=0 && s.idx.claim>=0),
                early: s.idx.early>=0, brand: s.idx.brand>=0 },
       fmt: s.fmt,
+      warns: s.warns,
       meta: { total: s.rows, acc: accN, to: to, comp: Math.round(comp), src: file.name, excl: s.skip }
     };
   }
@@ -2617,6 +2627,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   /* 旧版数据（每组 3 字段）升级为 15 字段布局：新字段一律 0，并标记 legacy 以提示重新上传 */
   function normalizeData(dat){
     if(!dat || !dat.grid) return dat;
+    if(!dat.warns) dat.warns = [];                 // 口径告警（缺失时补齐，避免渲染报错）
     var stride = dat.nf || 0;
     if(!stride){
       var c = null;
@@ -2863,7 +2874,54 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       riders: data.riders,
       grid: idxs.map(function(i){ return data.grid[i] }),
       avail: data.avail || {},
+      /* ★ 剔除构成也要上传：否则云端同步后「剔除明细」整块空白（它读的是 excl）。
+         每天都带上（不分是否在本次上传范围内）—— 它极小（每天 4 个数字），
+         服务端按天 upsert，重复传不会累加；若只传变化的那几天，其余天的构成永远补不齐。 */
+      exclByDate: pickExclByDate(data, allDayIdx(data)),
     };
+  }
+  /* ★ 云端数据可能没有「剔除构成」（老库未存该字段）。若本机有，就补进去 ——
+     否则：①「剔除明细」整块空白；② 下次推送时 D 里已经没有 excl，永远补不回云端（死循环）。
+     合并粒度按天：同一天以云端为准，云端缺的天用本机补。 */
+  function mergeExcl(cloud, local){
+    var l = local && local.excl, c = cloud && cloud.excl;
+    if(!l || !l.byDate) return cloud;
+    var byDate = {}, i;
+    var ldays = Object.keys(l.byDate);
+    for(i=0;i<ldays.length;i++) byDate[ldays[i]] = l.byDate[ldays[i]];
+    if(c && c.byDate){ var cdays = Object.keys(c.byDate); for(i=0;i<cdays.length;i++) byDate[cdays[i]] = c.byDate[cdays[i]] }
+    var sums = { nofault:0, fault:0, undeliv:0, other:0 }, total = 0;
+    var ks = Object.keys(byDate);
+    for(i=0;i<ks.length;i++){
+      var v = byDate[ks[i]] || {};
+      total += (v.nofault||0)+(v.fault||0)+(v.undeliv||0)+(v.other||0);
+      sums.nofault += v.nofault||0; sums.fault += v.fault||0;
+      sums.undeliv += v.undeliv||0; sums.other += v.other||0;
+    }
+    cloud.excl = {
+      byDate: byDate,
+      st: (c && c.st && c.st.length) ? c.st : (l.st || []),
+      rd: (c && c.rd && c.rd.length) ? c.rd : (l.rd || []),
+      top: (c && c.top && Object.keys(c.top||{}).length) ? c.top : (l.top || {}),
+      total: total,
+      dates: ks.sort(),
+    };
+    cloud.meta = cloud.meta || {};
+    cloud.meta.excl = sums;
+    return cloud;
+  }
+  function allDayIdx(data){
+    var a = []; for(var i=0;i<(data.dates||[]).length;i++) a.push(i); return a;
+  }
+  function pickExclByDate(data, idxs){
+    var src = (data.excl && data.excl.byDate) || null;
+    if(!src) return null;
+    var out = {}, n = 0;
+    for(var i=0;i<idxs.length;i++){
+      var dt = data.dates[idxs[i]];
+      if(dt && src[dt]){ out[dt] = src[dt]; n++ }
+    }
+    return n ? out : null;
   }
 
   /* 用口令换取会话（口令只在这一次请求体里出现，之后浏览器只留 HttpOnly Cookie） */
@@ -2934,6 +2992,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       if(!silent) setStatus('⏳ 正在从云端载入…');
       var j = await cApi('/api/data');
       var d = normalizeData(j.data);
+      mergeExcl(d, D);          // ★ 本机的剔除构成不能因为一次拉取就丢掉
       if(!d.dates || !d.dates.length){
         if(!silent) setStatus('云端暂无数据');
         await cRefreshStatus();
@@ -2964,7 +3023,27 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       var todo = plan.plan ? plan.plan.todo : null;      // null = 清单取不到 → 退回全量传
       var localSkip = plan.plan ? plan.plan.skipped : 0;
       var payload = (todo && todo.length) ? subsetPayload(D, todo) : (todo && !todo.length ? null : D);
+      if(payload && payload === D){
+        /* 全量传：把 D 浅拷贝一份并补上 exclByDate（不改动本机的 D） */
+        var allIdx = []; for(var ai=0; ai<D.dates.length; ai++) allIdx.push(ai);
+        payload = {}; for(var kk in D){ if(Object.prototype.hasOwnProperty.call(D, kk)) payload[kk] = D[kk] }
+        payload.exclByDate = pickExclByDate(D, allIdx);
+      }
       if(payload === null){
+        /* ★ 日期全部一致时不传网格，但**仍然补传一次剔除构成** ——
+           它是后加的字段，老库的 day_excl 表还是空的；不补的话「剔除明细」会一直空白。
+           载荷极小（每天 4 个数字），且服务端按天 upsert，重复传不会累加。 */
+        var exOnly = pickExclByDate(D, allDayIdx(D));
+        if(exOnly){
+          try{
+            await cApi('/api/upload', {
+              method: 'POST',
+              body: { payload: { v: D.v, nf: D.nf || 15, dates: [], last: D.last || '',
+                                 riders: [], grid: [], avail: D.avail || {},
+                                 exclByDate: exOnly } },   /* 不传 src：避免在「数据来源」列表里多出一条 */
+            });
+          }catch(e){ /* 补传失败不影响主流程 */ }
+        }
         await cRefreshStatus();
         setStatus('☁️ 云端已是最新：本机 <b>' + D.dates.length + '</b> 天全部与云端一致（本地比对跳过 ' + localSkip +
           ' 天）· ' + dataSummary());
@@ -3063,12 +3142,23 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     })();
   })();
 
+  /* ★ 口径告警常驻区：解析期发现的口径问题在这里长期显示，不会被状态栏刷掉 */
+  function renderWarns(){
+    var box = $('#warnBox'); if(!box) return;
+    var ws = (D && D.warns) || [];
+    if(!ws.length){ box.style.display = 'none'; box.innerHTML = ''; return }
+    box.style.display = 'block';
+    box.innerHTML = ws.map(function(w){
+      return '<div class="note" style="border-left:3px solid #dc2626;background:#fef2f2;color:#7f1d1d;margin-top:9px">'+
+             '⚠️ '+w+'</div>';
+    }).join('');
+  }
   function applyData(src){
     showDash();
     buildSortSeg();
     scope.day = '__all__'; scope.st = '__all__'; scope.q = ''; scope.min = 5; scope.rank = 10;
     if($('#q')) $('#q').value = '';
-    buildControls(); renderAll();
+    buildControls(); renderAll(); renderWarns();
   }
 
   $('#fileInput').addEventListener('change', async function(e){
@@ -3523,6 +3613,16 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   function renderExclTable(){
     var E = D.excl;
     var html = '';
+    /* ★ 云端累积的数据只存了「按天」的剔除构成（站点/骑手维度没上传），
+       这时给出明确说明，而不是渲染一张空表让人以为「没有剔除」。 */
+    var rowsForView = exclView === 'rd' ? E.rd : (exclView === 'dt' ? null : E.st);
+    if(rowsForView && !rowsForView.length){
+      var dim = exclView === 'rd' ? '骑手' : '站点';
+      $('#exclTableWrap').innerHTML = '<div class="note" style="border-left:3px solid #94a3b8;background:#f8fafc">'+
+        '<b>云端累积的数据不含「按'+dim+'」的剔除明细</b>（上传时按天聚合，未保留到人/站）。'+
+        '合计与「按日期」仍然准确；要看按'+dim+'的明细，直接上传原始报表即可。</div>';
+      return;
+    }
     if(exclView === 'st'){
       var head = ['站点','无责取消','其他未妥投','物流责取消','在途未送达','合计',''];
       var mx = Math.max.apply(null, E.st.map(function(r){ return r[5] }));
@@ -3774,14 +3874,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   /* 启动：优先用内置数据（离线单文件版）；否则读本机缓存；都没有则显示空状态 */
   if(D){
     D = normalizeData(D);
-    buildSortSeg(); showDash(); buildControls(); renderAll(); setStatus(dataSummary());
+    buildSortSeg(); showDash(); buildControls(); renderAll(); renderWarns(); setStatus(dataSummary());
   } else {
     showEmpty();
     loadLocal().then(function(rec){
       if(rec && rec.data && rec.data.meta && rec.data.meta.total){
         D = normalizeData(rec.data);
         buildSortSeg();          // ★ 排序按钮按当前视图生成，恢复数据这条路径也必须建一次
-        showDash(); buildControls(); renderAll();
+        showDash(); buildControls(); renderAll(); renderWarns();
         setStatus('✅ 已从本机恢复数据（保存于 '+fmtTime(rec.savedAt)+'）：'+dataSummary());
         if(cUnlocked) cPull(true);         // 已解锁则拉云端覆盖（云端是历次上传的累积，最完整）
       }else if(cUnlocked){
