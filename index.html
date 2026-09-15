@@ -175,6 +175,15 @@ tr.rrow:active{background:#f2f6ff}
 .exp-body.fith{display:flex;align-items:center;justify-content:center}
 .mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
 @media(max-width:520px){.mgrid{grid-template-columns:repeat(2,1fr)}}
+/* ★ 三个维度（整商汇总 / 站点 / 骑手明细）的章节横幅 */
+.chapter{display:flex;align-items:center;gap:12px;margin:34px 0 4px;padding:13px 16px;
+  border-radius:14px;background:linear-gradient(96deg,#eef4ff 0%,#f3f7ff 55%,#fbfdff 100%);
+  border:1px solid #dbe7ff;box-shadow:inset 0 1px 0 #fff}
+.chapter .cnum{flex:0 0 auto;width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;font-size:14px;font-weight:800;box-shadow:0 3px 8px rgba(37,99,235,.28)}
+.chapter .ctxt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.chapter .ctxt b{font-size:16px;color:#1e293b;letter-spacing:.5px}
+.chapter .ctxt small{font-size:11.5px;color:#64748b;line-height:1.4}
 /* 质量指标卡：可点 + 迷你折线 + 最新/全周期两行 */
 .metcard{cursor:pointer;transition:.15s;display:flex;flex-direction:column}
 .metcard:hover{border-color:#c7d2fe;box-shadow:0 6px 20px rgba(37,99,235,.13);transform:translateY(-1px)}
@@ -248,8 +257,16 @@ tr.rrow:active{background:#f2f6ff}
   </div>
 
   <div id="dashBody" style="display:none">
-  <div class="sec-title"><span class="dot"></span>筛选标签 <small>切换后以下全部指标联动</small></div>
+
+  <!-- ══════════════ 全局筛选（作用于下方三个维度） ══════════════ -->
+  <div class="sec-title"><span class="dot"></span>筛选标签 <small>切换后以下三个维度全部联动</small></div>
   <div class="card" id="filterBar"></div>
+
+  <!-- ══════════════════════ 一、整商汇总 ══════════════════════ -->
+  <div class="chapter">
+    <span class="cnum">1</span>
+    <span class="ctxt"><b>整商汇总</b><small>全团队口径：整体表现、四项考核指标、日期趋势、团队综合分</small></span>
+  </div>
 
   <section class="mod" data-name="昨日最新情况">
   <div class="sec-title"><span class="dot"></span>昨日最新情况 <small id="lastTag"></small></div>
@@ -261,30 +278,13 @@ tr.rrow:active{background:#f2f6ff}
   <div class="grid kpi" id="kpiAll"></div>
   </section>
 
-  <section class="mod" data-name="质量四指标与综合评价">
-  <div class="sec-title"><span class="dot"></span>质量四指标 <small>平台考核口径 · 随上方筛选联动</small></div>
+  <section class="mod" data-name="质量四指标">
+  <div class="sec-title"><span class="dot"></span>质量四指标 <small>平台考核口径 · 随上方筛选联动 · 点卡片看详情</small></div>
   <div class="grid kpi" id="mKpi"></div>
   <div id="mWarn"></div>
   <div class="card" style="margin-top:12px">
     <div class="mtabcap" style="margin-top:0">📅 四指标逐日明细</div>
     <div id="mTrendTable"></div>
-  </div>
-
-  <div class="sec-title"><span class="dot"></span>综合评价分 <small>100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100 ｜ 默认口径：按占比（各对象扣分对全体求和后算占比）</small></div>
-  <div class="card">
-    <div class="ctrl">
-      <span class="muted" style="font-size:12px">计分口径</span>
-      <div class="seg" id="scoreSeg">
-        <button data-s="tx" class="on">按占比（默认）</button>
-        <button data-s="rate">自身率值</button>
-      </div>
-    </div>
-    <div id="scoreTeam"></div>
-    <div class="mtabcap" style="margin-top:10px">🏢 站点排行 <span style="font-weight:400;color:#98a2b3">按综合分升序，分低＝占团队问题比重更大（不受单量规模影响）· 四列「占比」= 计分代入值（站点不放大）→ 可直接复算综合分</span></div>
-    <div id="scoreSites"></div>
-    <div class="mtabcap">👥 骑手两端 <span style="font-weight:400;color:#98a2b3">综合分最低 8 名 / 最高 8 名（由低到高排列）· 四列「占比」= <b>团队占比原式</b>（该骑手占团队该项问题量的份额，合计恒 100%）；<b>放大只用于计分</b>，悬停行可见放大后的代入值 · 点行看逐日明细</span></div>
-    <div id="scoreRiders"></div>
-    <div class="note" id="scoreNote"></div>
   </div>
   </section>
 
@@ -309,10 +309,67 @@ tr.rrow:active{background:#f2f6ff}
   </div>
   </section>
 
+  <section class="mod" data-name="团队综合分">
+  <div class="sec-title"><span class="dot"></span>团队综合分 <small>100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100</small></div>
+  <div class="card">
+    <div class="ctrl">
+      <span class="muted" style="font-size:12px">计分口径</span>
+      <div class="seg scoreSeg">
+        <button data-s="tx" class="on">按占比（默认）</button>
+        <button data-s="rate">自身率值</button>
+      </div>
+    </div>
+    <div id="scoreTeam"></div>
+    <div class="note" id="scoreNote"></div>
+    <div class="note" style="margin-top:8px">站点排行、骑手两端分别见下方「站点」「骑手明细」两个维度，计分口径与这里联动。</div>
+  </div>
+  </section>
+
+  <section class="mod" data-name="剔除明细">
+  <div class="sec-title"><span class="dot"></span>剔除明细 <small id="exclTag"></small></div>
+  <div class="card">
+    <div id="exclSummary"></div>
+    <div class="seg" id="exclSeg" style="margin-top:12px">
+      <button data-v="st" class="on">按站点</button>
+      <button data-v="rd">按骑手</button>
+      <button data-v="date">按日期</button>
+    </div>
+    <div class="scroll" id="exclTableWrap" style="margin-top:10px"></div>
+    <div class="note" id="exclNote"></div>
+  </div>
+  </section>
+
+  <!-- ══════════════════════ 二、站点 ══════════════════════ -->
+  <div class="chapter">
+    <span class="cnum">2</span>
+    <span class="ctxt"><b>站点</b><small>站点维度：全周期对比 + 最新表现 + 综合分排行</small></span>
+  </div>
+
   <section class="mod" data-name="站点维度">
   <div class="sec-title"><span class="dot"></span>站点维度 <small>全周期对比 + 最新表现 · 点卡片看整周期明细</small></div>
   <div class="grid" id="stationGrid" style="grid-template-columns:repeat(2,1fr)"></div>
   </section>
+
+  <section class="mod" data-name="站点综合分排行">
+  <div class="sec-title"><span class="dot"></span>站点综合分排行 <small>按综合分升序，分低＝占团队问题比重更大（不受单量规模影响）</small></div>
+  <div class="card">
+    <div class="ctrl">
+      <span class="muted" style="font-size:12px">计分口径</span>
+      <div class="seg scoreSeg">
+        <button data-s="tx" class="on">按占比（默认）</button>
+        <button data-s="rate">自身率值</button>
+      </div>
+    </div>
+    <div class="mtabcap" style="margin-top:2px">四列「占比」= 计分代入值（站点不放大）→ 可直接复算综合分</div>
+    <div id="scoreSites"></div>
+  </div>
+  </section>
+
+  <!-- ══════════════════════ 三、骑手明细 ══════════════════════ -->
+  <div class="chapter">
+    <span class="cnum">3</span>
+    <span class="ctxt"><b>骑手明细</b><small>逐人明细排行（可搜索/筛选/排序）+ 综合分两端（最好/最差）</small></span>
+  </div>
 
   <section class="mod" data-name="骑手明细排行" id="riderRank">
   <div class="sec-title"><span class="dot"></span>骑手明细排行</div>
@@ -345,17 +402,18 @@ tr.rrow:active{background:#f2f6ff}
   </div>
   </section>
 
-  <section class="mod" data-name="剔除明细">
-  <div class="sec-title"><span class="dot"></span>剔除明细 <small id="exclTag"></small></div>
+  <section class="mod" data-name="骑手综合分两端">
+  <div class="sec-title"><span class="dot"></span>骑手综合分两端 <small>最低 8 名 / 最高 8 名（由低到高排列）</small></div>
   <div class="card">
-    <div id="exclSummary"></div>
-    <div class="seg" id="exclSeg" style="margin-top:12px">
-      <button data-v="st" class="on">按站点</button>
-      <button data-v="rd">按骑手</button>
-      <button data-v="date">按日期</button>
+    <div class="ctrl">
+      <span class="muted" style="font-size:12px">计分口径</span>
+      <div class="seg scoreSeg">
+        <button data-s="tx" class="on">按占比（默认）</button>
+        <button data-s="rate">自身率值</button>
+      </div>
     </div>
-    <div class="scroll" id="exclTableWrap" style="margin-top:10px"></div>
-    <div class="note" id="exclNote"></div>
+    <div class="mtabcap" style="margin-top:2px">四列「占比」= <b>团队占比原式</b>（该骑手占团队该项问题量的份额，合计恒 100%）；<b>放大只用于计分</b>，悬停行可见放大后的代入值 · 点行看逐日明细</div>
+    <div id="scoreRiders"></div>
   </div>
   </section>
 
@@ -366,6 +424,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=47"></script>
+<script src="core_v24.js?v=48"></script>
 </body>
 </html>
