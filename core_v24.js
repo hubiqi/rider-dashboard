@@ -247,6 +247,8 @@
   /* ================= 小工具 ================= */
   function fmt(n,d){ return (Math.round(n*Math.pow(10,d||0))/Math.pow(10,d||0)).toFixed(d||0) }
   function pct(v,d){ return fmt(v, d===undefined?2:d)+'%' }
+  /* 时长可读化（模块级：局部定义的 hh 曾在 v49 被新函数误用 → 启动期静默 ReferenceError） */
+  function durText(s){ return s>=3600 ? (s/3600).toFixed(1)+' 小时' : Math.round(s)+' 秒' }
   function delta(cur,prev){ return prev ? (cur-prev)/prev*100 : null }
   function dPill(d, mode){
     if(d===null) return '<span class="pill b">—</span>';
@@ -2365,6 +2367,127 @@
     });
   }
 
+  /* ================= 卡餐（出餐慢）/ 二呼单影响分析 =================
+     ★ 数据模型里每个骑手每天有 4 个桶：b = (二呼单?2:0) + (出餐慢报备?1:0)，
+       所以「剔除某类单后指标变成多少」可以直接用 matchB 的过滤参数算出来，
+       **不需要改解析、不需要重新上传**（v49）。
+     来源列：是否出餐慢报备（= 用户说的「卡餐」）、是否二呼单。
+     实测该数据集：是否符合卡餐剔除标准 / 是否战区申报卡餐剔除 两列全为 0，不可用。 */
+  var IMPACT_VARIANTS = [
+    { key:'all',  lab:'全量（含卡餐/二呼）', s:{f1:'all', f2:'all'}, cls:'' },
+    { key:'noCard', lab:'剔除卡餐单',        s:{f1:'all', f2:'no'},  cls:'imp-green' },
+    { key:'noErhu', lab:'剔除二呼单',        s:{f1:'no',  f2:'all'}, cls:'imp-green' },
+    { key:'noBoth', lab:'剔除卡餐+二呼',     s:{f1:'no',  f2:'no'},  cls:'imp-green' }
+  ];
+  function deltaCell(cur, base, unit, dec, lowerBetter){
+    if(!base) return '<span class="muted">—</span>';
+    var d = cur - base, r = base ? d/base*100 : 0;
+    if(Math.abs(d) < Math.pow(10, -dec)/2) return '<span class="muted">持平</span>';
+    var good = lowerBetter ? (d < 0) : (d > 0);
+    var col = good ? '#059669' : '#dc2626';
+    return '<span style="color:'+col+';font-weight:700">'+(d>0?'+':'')+fmt(d,dec)+unit+
+      ' <em style="font-style:normal;font-weight:400;font-size:10.5px">('+(r>0?'+':'')+r.toFixed(1)+'%)</em></span>';
+  }
+  /* ① 整商汇总：团队级影响表 */
+  function renderImpactTeam(dts){
+    var dtsx = dts || dayList();
+    var rows = IMPACT_VARIANTS.map(function(v){ return { v:v, m: aggScope(v.s, dtsx) } });
+    var base = rows[0].m;
+    var cardM = aggScope({f1:'all', f2:'yes'}, dtsx);     // 只含卡餐单
+    var erhuM = aggScope({f1:'yes', f2:'all'}, dtsx);     // 只含二呼单
+    var el = $('#impactTeam'); if(!el) return;
+    if(!base.t){ el.innerHTML = '<div class="empty">当前筛选下无有效完单</div>'; return }
+
+    var cols = ['单量','超时单','超时率','复合合计','单均复合'];
+    el.innerHTML =
+      '<div class="imptip">'+
+        '<b>卡餐单</b>（出餐慢报备）<b style="color:#dc2626">'+cardM.t+'</b> 单，占 <b>'+
+          (cardM.t/base.t*100).toFixed(2)+'%</b>；该组超时率 <b style="color:#dc2626">'+pct(cardM.r)+'</b>'+
+          '（全量 '+pct(base.r)+' 的 '+(base.r? (cardM.r/base.r).toFixed(1):'—')+' 倍）· '+
+        '<b>二呼单</b> <b style="color:#7c3aed">'+erhuM.t+'</b> 单，占 <b>'+(erhuM.t/base.t*100).toFixed(2)+
+          '%</b>；该组超时率 <b style="color:#7c3aed">'+pct(erhuM.r)+'</b>、单均复合 <b>'+
+          fmt(erhuM.avgComp,1)+'s</b>（全量 '+fmt(base.avgComp,1)+'s）'+
+      '</div>'+
+      '<div class="scroll"><table class="xtab"><thead><tr><th>口径</th>'+
+        cols.map(function(c){ return '<th class="num">'+c+'</th>' }).join('')+
+        '<th class="num">超时率影响</th><th class="num">单均复合影响</th></tr></thead><tbody>'+
+        rows.map(function(r, i){
+          var m = r.m, isBase = (i === 0);
+          return '<tr'+(isBase?' style="background:#f8fafc"':'')+'>'+
+            '<td style="font-weight:'+(isBase?'800':'600')+';color:'+(isBase?'#334155':'#059669')+'">'+r.v.lab+'</td>'+
+            '<td class="num">'+m.t+'</td>'+
+            '<td class="num">'+m.o+'</td>'+
+            '<td class="num" style="color:'+rateColor(m.r)+'">'+pct(m.r)+'</td>'+
+            '<td class="num">'+durText(m.s)+'</td>'+
+            '<td class="num" style="color:#7c3aed">'+fmt(m.avgComp,1)+'s</td>'+
+            (isBase ? '<td class="num muted">基准</td><td class="num muted">基准</td>'
+                    : '<td class="num">'+deltaCell(m.r, base.r, ' pt', 2, true)+'</td>'+
+                      '<td class="num">'+deltaCell(m.avgComp, base.avgComp, 's', 1, true)+'</td>')+
+            '</tr>';
+        }).join('')+'</tbody></table></div>'+
+      '<div class="foot" style="margin-top:8px;line-height:1.7">'+
+        '「剔除卡餐单」= 去掉 <b>是否出餐慢报备=是</b> 的单；「剔除二呼单」= 去掉 <b>是否二呼单=是</b> 的单；两者可叠加。<br>'+
+        '★ 影响列 = 该口径相对「全量」的变化，<span style="color:#059669">绿色</span>表示指标变好（超时率/单均复合下降）。'+
+        '源数据里 <b>是否符合卡餐剔除标准</b> 与 <b>是否战区申报卡餐剔除</b> 两列在该文件全为 0，故未采用。'+
+      '</div>';
+  }
+  /* ② 站点维度：逐站影响表（卡餐 + 二呼 各自的量与剔除后的变化） */
+  function renderImpactStation(dts){
+    var dtsx = dts || dayList();
+    var el = $('#impactStation'); if(!el) return;
+    var base     = byStation({f1:'all', f2:'all'}, dtsx);
+    var noCard   = byStation({f1:'all', f2:'no'},  dtsx);
+    var noBoth   = byStation({f1:'no',  f2:'no'},  dtsx);
+    var cardOnly = byStation({f1:'all', f2:'yes'}, dtsx);
+    var erhuOnly = byStation({f1:'yes', f2:'all'}, dtsx);
+    var idx = function(arr){ var m={}; arr.forEach(function(x){ m[x.st]=x }); return m };
+    var mCard = idx(cardOnly), mErhu = idx(erhuOnly), mNoCard = idx(noCard), mNoBoth = idx(noBoth);
+    var list = base.map(function(m){
+      return { st:m.st, m:m, card:mCard[m.st], erhu:mErhu[m.st], noCard:mNoCard[m.st], noBoth:mNoBoth[m.st] };
+    }).filter(function(x){ return x.m.t > 0 });
+    // 按「剔除卡餐+二呼后超时率的改善幅度」排序，问题最靠商家侧/派单侧的站排前面
+    list.sort(function(a,b){
+      var ga = a.noBoth ? a.m.r - a.noBoth.r : 0, gb = b.noBoth ? b.m.r - b.noBoth.r : 0;
+      return gb - ga;
+    });
+    if(!list.length){ el.innerHTML = '<div class="empty">当前筛选下无数据</div>'; return }
+    el.innerHTML = '<div class="scroll"><table class="xtab"><thead><tr>'+
+        '<th>站点</th><th class="num">单量</th>'+
+        '<th class="num">卡餐单</th><th class="num">占比</th><th class="num">该组超时率</th>'+
+        '<th class="num">二呼单</th><th class="num">占比</th><th class="num">该组超时率</th>'+
+        '<th class="num">超时率<br>（全量）</th>'+
+        '<th class="num">剔除卡餐<br>后</th>'+
+        '<th class="num">剔除卡餐+二呼<br>后</th>'+
+        '<th class="num">超时率<br>影响</th>'+
+        '<th class="num">单均复合<br>（全量→剔除）</th>'+
+      '</tr></thead><tbody>'+
+      list.map(function(x){
+        var m = x.m, c = x.card, e = x.erhu, n1 = x.noCard, n2 = x.noBoth;
+        var pc = (c && m.t) ? c.t/m.t*100 : 0, pe = (e && m.t) ? e.t/m.t*100 : 0;
+        var dR = n2 ? n2.r - m.r : null;
+        return '<tr>'+
+          '<td style="font-weight:600;text-align:left">'+esc(m.st.replace(/-UB$/,''))+'</td>'+
+          '<td class="num">'+m.t+'</td>'+
+          '<td class="num">'+(c?c.t:0)+'</td>'+
+          '<td class="num">'+(c&&c.t?pc.toFixed(2)+'%':'—')+'</td>'+
+          '<td class="num" style="font-weight:600;color:'+(c&&c.t?rateColor(c.r):'#98a2b3')+'">'+(c&&c.t?pct(c.r):'—')+'</td>'+
+          '<td class="num">'+(e?e.t:0)+'</td>'+
+          '<td class="num">'+(e&&e.t?pe.toFixed(2)+'%':'—')+'</td>'+
+          '<td class="num" style="font-weight:600;color:'+(e&&e.t?rateColor(e.r):'#98a2b3')+'">'+(e&&e.t?pct(e.r):'—')+'</td>'+
+          '<td class="num" style="font-weight:700;color:'+rateColor(m.r)+'">'+pct(m.r)+'</td>'+
+          '<td class="num" style="color:#059669">'+(n1?pct(n1.r):'—')+'</td>'+
+          '<td class="num" style="color:#059669">'+(n2?pct(n2.r):'—')+'</td>'+
+          '<td class="num">'+(dR==null?'—':deltaCell(n2.r, m.r, ' pt', 2, true))+'</td>'+
+          '<td class="num" style="color:#7c3aed">'+fmt(m.avgComp,1)+' → '+(n2?fmt(n2.avgComp,1):'—')+'s</td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>'+
+      '<div class="foot" style="margin-top:8px;line-height:1.7">按「剔除卡餐+二呼后的改善幅度」从大到小排列。<br>'+
+        '<b>怎么读</b>：① 某站「卡餐单超时率」远高于本站全量超时率 → 该站超时<b>主要由商家出餐慢（卡餐）造成</b>，应找商家侧；'+
+        '② 剔除卡餐+二呼后仍明显偏高 → 属<b>骑手侧/派单侧</b>问题，需从人效与派单策略入手；'+
+        '③ 「占比」= 该站此类单占本站有效完单的比例。'+
+      '</div>';
+  }
+
   function renderAll(){
     if(!D) return;
     renderFilterBar();
@@ -2376,6 +2499,8 @@
     renderTable();
     renderExcl();
     var dts = dayList();
+    renderImpactTeam(dts);
+    renderImpactStation(dts);
     $('#range').textContent = '数据范围 '+D.dates[0]+' ~ '+D.last+' · 共 '+D.dates.length+' 天 · '+
       D.riders.length+' 名骑手 · 站点 '+byStation(sel,dts).length+' 个'+
       (D.meta.src ? ' · 来源 '+D.meta.src : '');
