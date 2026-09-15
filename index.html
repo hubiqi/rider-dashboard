@@ -76,6 +76,24 @@ header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,
 .mixrow em{font-style:normal;color:#98a2b3;margin-left:auto;font-size:10px;white-space:nowrap;
   flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:400px){.mixrow em{font-size:10px}}
+/* 云同步面板 */
+.crow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.clab{color:#64748b;font-size:12px;flex:0 0 auto;min-width:56px}
+.cinput{flex:1 1 190px;min-width:0;padding:7px 10px;border:1px solid #dbe2ea;border-radius:8px;
+  font-size:12.5px;font-family:inherit;background:#fff}
+.cinput:focus{outline:none;border-color:#93b4f5;box-shadow:0 0 0 3px rgba(37,99,235,.10)}
+.cstate{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:#f1f5f9;color:#64748b;
+  margin-left:auto;flex:0 0 auto}
+@media(max-width:470px){.cinput{flex:1 1 100%;order:3}}
+@media(max-width:470px){.cinfo{flex:1 1 100%;order:3;margin-top:2px}}
+.cstate.ok{background:#ecfdf5;color:#047857}
+.cstate.bad{background:#fef2f2;color:#b91c1c}
+.cinfo{font-size:12.5px;color:#334155}
+.cinfo b{color:#1e293b}
+.cchk{font-size:12px;color:#475569;display:flex;align-items:center;gap:5px;margin-left:auto;white-space:nowrap}
+.cnote{margin-top:11px;padding-top:9px;border-top:1px dashed #eef1f6;font-size:11.5px;line-height:1.85;color:#64748b}
+.cnote b{color:#334155}
+.cnote code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:11px;color:#0f172a}
 .mixnote{margin-top:10px;padding:9px 12px;border-radius:10px;background:#fbfcfe;border:1px solid #eef1f6;
   font-size:11.5px;line-height:1.85;color:#64748b}
 .mixnote b{color:#334155}
@@ -260,6 +278,34 @@ tr.rrow:active{background:#f2f6ff}
       <button class="btn ghost" id="expDataBtn" title="把本机数据导出为 .json，便于换设备导入">⬇ 导出数据</button>
       <button class="btn ghost" id="clrBtn" title="清除本机保存的数据">🗑 清空</button>
       <span id="upStatus" class="upstatus"></span>
+    </div>
+  </div>
+
+  <!-- ══════════════ 云同步（Cloudflare KV 长期存储，增量去重） ══════════════ -->
+  <div class="sec-title"><span class="dot"></span>云同步 <small>数据存到 Cloudflare，以后只需上传新增的日期，自动去重增量合并</small></div>
+  <div class="card">
+    <div class="crow">
+      <span class="clab">访问令牌</span>
+      <input type="password" id="cToken" class="cinput" placeholder="粘贴云端令牌（只需填一次，存本机）" autocomplete="off">
+      <button class="btn ghost" id="cSave">保存</button>
+      <button class="btn ghost" id="cForget" title="清除本机保存的令牌">忘记</button>
+    </div>
+    <div class="crow" style="margin-top:10px">
+      <span class="clab">云端数据</span>
+      <span id="cInfo" class="cinfo">—</span>
+      <span id="cState" class="cstate">未配置</span>
+    </div>
+    <div class="crow" style="margin-top:9px;flex-wrap:wrap">
+      <button class="btn" id="cLoad">☁️ 从云端载入</button>
+      <button class="btn ghost" id="cPush" title="把当前本机数据全量推到云端（同样会去重）">⬆ 推到云端</button>
+      <button class="btn ghost" id="cReset" title="清空云端存储（需二次确认）">🗑 清空云端</button>
+      <label class="cchk"><input type="checkbox" id="cAuto" checked> 上传 xlsx 后自动同步到云端</label>
+    </div>
+    <div class="cnote">
+      <b>怎么用</b>：填一次令牌 → 以后每次拿到新的报表，直接「⬆ 载入数据」上传即可。<br>
+      存储按<b>天</b>为单位、以内容哈希去重：<b>新日期自动追加</b>，<b>同一天内容相同则跳过</b>，<b>内容有更新则覆盖</b>那一天 ——
+      不会重复累加，也不必重复上传历史数据。只保存看板需要的统计维度（每骑手每天 4 类单 × 15 个计数字段），原始 xlsx 不落库。<br>
+      <span class="muted">数据存在你自己的 Cloudflare 账号里（KV 命名空间 <code>riderdash</code>），读写均需令牌，页面本身不含数据。</span>
     </div>
   </div>
 
@@ -473,6 +519,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=51"></script>
+<script src="core_v24.js?v=52"></script>
 </body>
 </html>
