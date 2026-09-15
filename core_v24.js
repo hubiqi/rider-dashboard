@@ -258,10 +258,69 @@
     else cls = up?'down':'up';
     return '<span class="'+cls+'" style="font-weight:700">'+(up?'▲':'▼')+' '+Math.abs(d).toFixed(1)+'%</span>';
   }
-  function card(lab, val, unit, foot){
+  function card(lab, val, unit, foot, extra){
     return '<div class="card"><div class="lab">'+lab+'</div>'+
       '<div class="val">'+val+'<small>'+unit+'</small></div>'+
-      '<div class="foot">'+(foot||'')+'</div></div>';
+      '<div class="foot">'+(foot||'')+'</div>'+
+      (extra||'')+'</div>';
+  }
+  /* ===== 单类型拆分：二呼 / 卡餐 / 正常（v50）=====
+     口径与「卡餐 / 二呼单影响」分析完全一致（同一套桶过滤，见 matchB）：
+       二呼单 = 是否二呼单=是（含「卡餐且二呼」的单）
+       卡餐单 = 是否出餐慢报备=是（含「卡餐且二呼」的单）
+       正常单 = 两者都不是           ← 所以「卡餐+二呼」的重叠单在二呼/卡餐两行里各计一次
+     ★ 每行的「影响占比」= 该类型单对该指标总量的贡献，例如超时率卡看的是
+       「该类型贡献的超时单 ÷ 全部超时单」；三行相加会略超 100%（重叠单被计两次），这是「影响」口径而非互斥分类。 */
+  var MIX3 = [
+    { key:'erhu', lab:'二呼', s:{f1:'yes', f2:'all'}, color:'#7c3aed' },
+    { key:'card', lab:'卡餐', s:{f1:'all', f2:'yes'}, color:'#dc2626' },
+    { key:'norm', lab:'正常', s:{f1:'no',  f2:'no'},  color:'#059669' }
+  ];
+  /* 一次性算好「全量 + 三类」的聚合，避免每张卡重复遍历 */
+  function mixMap(dts){
+    var o = { all: aggScope(sel, dts) };
+    MIX3.forEach(function(x){ o[x.key] = aggScope(x.s, dts) });
+    return o;
+  }
+  /* metric: 't' 单量 · 'r' 超时率 · 'o' 超时单 · 'c' 单均复合 · 'range' 超时率区间 */
+  function mixRows(mk, metric){
+    var av = D.avail || {};
+    if(av.f1 === false && av.f2 === false) return '';      // 旧数据没有这两列 → 不拆
+    var base = mk.all;
+    return '<div class="mixbox">' + MIX3.map(function(x){
+      var m = mk[x.key]; if(!m) return '';
+      var val, tail = '';
+      if(metric === 't'){
+        val = m.t + ' 单';
+        tail = '占单量 ' + (base.t ? (m.t/base.t*100).toFixed(1) : '0.0') + '%';
+      } else if(metric === 'o'){
+        val = m.o + ' 单';
+        tail = '占超时 ' + (base.o ? (m.o/base.o*100).toFixed(1) : '0.0') + '%';
+      } else if(metric === 'c'){
+        val = fmt(m.c,1) + ' 秒';
+        tail = '占复合 ' + (base.s ? (m.s/base.s*100).toFixed(1) : '0.0') + '%';
+      } else {   // 'r'
+        val = pct(m.r);
+        tail = '占超时 ' + (base.o ? (m.o/base.o*100).toFixed(1) : '0.0') + '%';
+      }
+      return '<div class="mixrow" title="'+escA(x.lab+'单：'+val+'（'+tail+'）')+'">'+
+        '<i style="background:'+x.color+'"></i><span>'+x.lab+'</span>'+
+        '<b style="color:'+x.color+'">'+val+'</b><em>'+tail+'</em></div>';
+    }).join('') + '</div>';
+  }
+  /* 波动区间卡：三类各自的超时率区间（跨日） */
+  function mixRangeRows(byD){
+    var av = D.avail || {};
+    if(av.f1 === false && av.f2 === false) return '';
+    return '<div class="mixbox">' + MIX3.map(function(x){
+      var vals = byD.map(function(d){ return d[x.key] ? d[x.key].r : 0 });
+      var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals);
+      var avg = byD.length ? vals.reduce(function(a,b){ return a+b }, 0)/byD.length : 0;
+      return '<div class="mixrow" title="'+escA(x.lab+'单超时率区间：'+fmt(mn,2)+'% ~ '+fmt(mx,2)+'%')+'">'+
+        '<i style="background:'+x.color+'"></i><span>'+x.lab+'</span>'+
+        '<b style="color:'+x.color+'">'+fmt(mn,1)+'~'+fmt(mx,1)+'%</b>'+
+        '<em>均 '+fmt(avg,1)+'%</em></div>';
+    }).join('') + '</div>';
   }
   function selText(av){
     av = av || D.avail || {f1:true, f2:true};
@@ -666,22 +725,29 @@
     $('#heroBadge').textContent = '昨日超时率 '+pct(L.r)+' ｜ 单均复合 '+fmt(L.c,1)+' 秒';
     $('#lastTag').textContent = '（'+D.last+'）· '+selText();
 
+    /* 单类型拆分（二呼 / 卡餐 / 正常）：每张卡下方三行，口径同「卡餐/二呼单影响」分析 */
+    var ML = mixMap([lastDi]);
     $('#kpiLast').innerHTML =
-      card('昨日单量', L.t, '单', '较前一日 '+dPill(delta(L.t,P.t),'neutral')) +
-      card('昨日超时率', pct(L.r), '', '较前一日 '+dPill(delta(L.r,P.r),'down-good')) +
-      card('昨日超时单', L.o, '单', '占单量 '+pct(L.t? L.o/L.t*100:0)) +
-      card('昨日单均复合', fmt(L.c,1), '秒', '较前一日 '+dPill(delta(L.c,P.c),'down-good'));
+      card('昨日单量', L.t, '单', '较前一日 '+dPill(delta(L.t,P.t),'neutral'), mixRows(ML,'t')) +
+      card('昨日超时率', pct(L.r), '', '较前一日 '+dPill(delta(L.r,P.r),'down-good'), mixRows(ML,'r')) +
+      card('昨日超时单', L.o, '单', '占单量 '+pct(L.t? L.o/L.t*100:0), mixRows(ML,'o')) +
+      card('昨日单均复合', fmt(L.c,1), '秒', '较前一日 '+dPill(delta(L.c,P.c),'down-good'), mixRows(ML,'c'));
 
-    var byD = dts.map(function(i){ return { dt:D.dates[i], a:aggScope(sel,[i]) } });
+    var byD = dts.map(function(i){
+      var o = { dt:D.dates[i], a:aggScope(sel,[i]) };
+      MIX3.forEach(function(x){ o[x.key] = aggScope(x.s,[i]) });
+      return o;
+    });
+    var MA = mixMap(dts);
     var rs = byD.map(function(x){ return x.a.r });
     var mx = Math.max.apply(null, rs), mn = Math.min.apply(null, rs);
     var mxD = '', mnD = '';
     byD.forEach(function(x){ if(x.a.r===mx) mxD = x.dt; if(x.a.r===mn) mnD = x.dt });
     $('#kpiAll').innerHTML =
-      card('累计单量', O.t, '单', '日均 '+Math.round(O.t/dts.length)+' 单') +
-      card('整体超时率', pct(O.r), '', '超时单 '+O.o+' 单') +
-      card('整体单均复合', fmt(O.c,1), '秒', '复合超时合计 '+Math.round(O.s)+' 秒') +
-      card('波动区间', fmt(mn,2)+'~'+fmt(mx,2), '%', '最低 '+mnD.slice(5)+' ｜ 最高 '+mxD.slice(5));
+      card('累计单量', O.t, '单', '日均 '+Math.round(O.t/dts.length)+' 单', mixRows(MA,'t')) +
+      card('整体超时率', pct(O.r), '', '超时单 '+O.o+' 单', mixRows(MA,'r')) +
+      card('整体单均复合', fmt(O.c,1), '秒', '复合超时合计 '+Math.round(O.s)+' 秒', mixRows(MA,'c')) +
+      card('波动区间', fmt(mn,2)+'~'+fmt(mx,2), '%', '最低 '+mnD.slice(5)+' ｜ 最高 '+mxD.slice(5), mixRangeRows(byD));
     return byD;
   }
 
