@@ -67,6 +67,15 @@ header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,
 .kpi .val{font-size:26px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
 .kpi .val small{font-size:13px;font-weight:600;color:var(--sub);margin-left:2px}
 .kpi .foot{font-size:11.5px;color:var(--sub);margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+/* 单类型拆分（二呼 / 卡餐 / 正常）三行 */
+.mixbox{margin-top:9px;padding-top:8px;border-top:1px dashed #eef1f6;display:flex;flex-direction:column;gap:6px}
+.mixrow{display:flex;align-items:center;gap:6px;font-size:11.5px;line-height:1.3;min-width:0}
+.mixrow i{width:7px;height:7px;border-radius:2px;flex:0 0 auto}
+.mixrow>span{color:#64748b;flex:0 0 26px}
+.mixrow b{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mixrow em{font-style:normal;color:#98a2b3;margin-left:auto;font-size:10.5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+@media(max-width:400px){.mixrow em{font-size:10px}}
 .up{color:var(--danger)}.down{color:var(--ok)}
 .pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600}
 .pill.r{background:#fef2f2;color:#b91c1c}.pill.g{background:#ecfdf5;color:#047857}
@@ -443,6 +452,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=49"></script>
+<script src="core_v24.js?v=50"></script>
 </body>
 </html>
