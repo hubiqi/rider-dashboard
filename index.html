@@ -175,6 +175,11 @@ tr.rrow:active{background:#f2f6ff}
 .exp-body.fith{display:flex;align-items:center;justify-content:center}
 .mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
 @media(max-width:520px){.mgrid{grid-template-columns:repeat(2,1fr)}}
+/* 卡餐 / 二呼影响分析 */
+.imptip{margin-bottom:10px;padding:10px 12px;border-radius:10px;background:#f8fafc;border:1px solid #eef1f6;
+  font-size:12.5px;line-height:1.75;color:#475569}
+.imptip b{color:#1e293b}
+.imp-green td{color:#334155}
 /* ★ 三个维度（整商汇总 / 站点 / 骑手明细）的章节横幅 */
 .chapter{display:flex;align-items:center;gap:12px;margin:34px 0 4px;padding:13px 16px;
   border-radius:14px;background:linear-gradient(96deg,#eef4ff 0%,#f3f7ff 55%,#fbfdff 100%);
@@ -309,7 +314,14 @@ tr.rrow:active{background:#f2f6ff}
   </div>
   </section>
 
-  <section class="mod" data-name="团队综合分">
+  <section class="mod" data-name="卡餐二呼影响">
+  <div class="sec-title"><span class="dot"></span>卡餐 / 二呼单影响 <small>剔除这些单后，超时率与单均复合会变成多少</small></div>
+  <div class="card">
+    <div id="impactTeam"></div>
+  </div>
+  </section>
+
+<section class="mod" data-name="团队综合分">
   <div class="sec-title"><span class="dot"></span>团队综合分 <small>100 −（0.2×① + 0.3×② + 0.15×③ + 0.2×④）×100</small></div>
   <div class="card">
     <div class="ctrl">
@@ -342,10 +354,17 @@ tr.rrow:active{background:#f2f6ff}
   <!-- ══════════════════════ 二、站点 ══════════════════════ -->
   <div class="chapter">
     <span class="cnum">2</span>
-    <span class="ctxt"><b>站点</b><small>站点维度：全周期对比 + 最新表现 + 综合分排行</small></span>
+    <span class="ctxt"><b>站点</b><small>站点维度：卡餐/二呼影响 + 全周期对比 + 最新表现 + 综合分排行</small></span>
   </div>
 
-  <section class="mod" data-name="站点维度">
+  <section class="mod" data-name="站点卡餐二呼影响">
+  <div class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small>各站超时里有多少是商家出餐慢（卡餐）造成的</small></div>
+  <div class="card">
+    <div id="impactStation"></div>
+  </div>
+  </section>
+
+<section class="mod" data-name="站点维度">
   <div class="sec-title"><span class="dot"></span>站点维度 <small>全周期对比 + 最新表现 · 点卡片看整周期明细</small></div>
   <div class="grid" id="stationGrid" style="grid-template-columns:repeat(2,1fr)"></div>
   </section>
@@ -424,6 +443,6 @@ tr.rrow:active{background:#f2f6ff}
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
 <div class="modal" id="modal"></div>
-<script src="core_v24.js?v=48"></script>
+<script src="core_v24.js?v=49"></script>
 </body>
 </html>
