@@ -24,15 +24,16 @@ header.hero .navback{display:inline-block;margin-bottom:10px;font-size:12px;colo
   text-decoration:none;background:rgba(255,255,255,.16);padding:4px 10px;border-radius:20px}
 header.hero .navback:hover{opacity:1;background:rgba(255,255,255,.26)}
 header.hero .range{margin-top:6px;font-size:12.5px;opacity:.9}
-header.hero .quota{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
-header.hero .quota .q{display:inline-flex;align-items:baseline;gap:5px;background:rgba(255,255,255,.14);
-  border-radius:8px;padding:3px 9px;font-size:11.5px;line-height:1.5;white-space:nowrap}
-header.hero .quota .q .ql{opacity:.85}
-header.hero .quota .q b{font-weight:700}
-header.hero .quota .q.ok b{color:#a7f3d0}
-header.hero .quota .q.warn b{color:#fde68a}
-header.hero .quota .q.bad b{color:#fecaca}
-header.hero .quota .qhint{font-size:11px;opacity:.75;align-self:center}
+/* D1 用量（现在在「数据源」卡片里，浅色底 → 用浅色配色） */
+.quota{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.quota .q{display:inline-flex;align-items:baseline;gap:5px;background:#f6f8fb;border:1px solid #eef1f6;
+  border-radius:7px;padding:2px 8px;font-size:11px;line-height:1.5;white-space:nowrap;color:#475569}
+.quota .q .ql{color:#94a3b8}
+.quota .q b{font-weight:700;color:#334155}
+.quota .q.ok b{color:#047857}
+.quota .q.warn b{color:#b45309}
+.quota .q.bad b{color:#b42318}
+.quota .qhint{font-size:11px;color:#94a3b8;align-self:center}
 header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,255,.18);
   border:1px solid rgba(255,255,255,.35);padding:4px 10px;border-radius:20px;font-size:12px}
 .sec-title{display:flex;align-items:baseline;gap:8px;margin:26px 4px 12px;font-size:15px;font-weight:700;
@@ -460,8 +461,6 @@ header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px
     <h1>骑手超时绩效看板</h1>
     <div class="range" id="range"></div>
     <div class="badge" id="heroBadge"></div>
-    <!-- D1 用量：★ 仅在口令解锁后显示（数据来自受鉴权的 /api/quota，服务端不给未解锁者） -->
-    <div class="quota" id="heroQuota" hidden></div>
   </header>
 
   <div class="sec-title"><span class="dot"></span>数据源 <small>上传绩效明细 xlsx 自动刷新 · 全程本机解析<span class="cloudonly">；解锁云同步后会上传到你自己账号</span></small></div>
@@ -479,6 +478,9 @@ header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px
       </div>
     </details>
     <div id="upStatus" class="upstatus" style="margin-top:9px"></div>
+    <!-- D1 用量（原在 hero 里）：属于「系统信息」而非「运营每天要看的答案」，
+         移到数据源卡片里 —— 首屏腾出来给真正的数据。JS 按 id 取，位置无所谓。 -->
+    <div class="quota" id="heroQuota" hidden></div>
     <!-- ★ 口径告警常驻区：解析期发现的口径问题长期显示，不会被状态栏刷新覆盖（如缺「运单状态」列） -->
     <div id="warnBox" style="display:none"></div>
   </div>
@@ -672,7 +674,6 @@ header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px
     <span class="cnum">2</span>
     <span class="ctxt"><b>站点</b><small>哪个站拖后腿 · 差在哪一项</small></span>
   </div>
-  <div class="card" id="ch2Sum" style="margin-top:8px"></div>
 
   <details class="mod collapsible" data-name="站点卡餐二呼影响">
   <summary class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small>各站超时里有多少是商家出餐慢（卡餐）造成的</small></summary>
