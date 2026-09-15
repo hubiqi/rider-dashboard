@@ -1378,7 +1378,11 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
          编码：o超时 h高笔T8 e违规送达 c虚假报备出餐慢 g虚假改派吸单 t虚假改派偷准达
                m投诉 b差评 l索赔 | 未妥投：f物流责 H物流责+高笔 S物流责+星巴克 u在途未送达 n无责取消
          只记有异常的单（正常单不记），否则存储会爆。 */
-      if(s.anomDaysSet) s.anomDaysSet[dstr] = 1;    // ★ 这一天解析过（无论有没有异常单）
+      /* ★ 这一天解析过（无论有没有异常单）—— 变量是 **d**（本行的日期字符串）。
+         ⚠️ 曾经误写成 dstr（那是循环结束后才定义的日期数组），
+            于是键变成 "undefined"，上传的 anomDays = ["undefined"] →
+            服务端按日期匹配全不命中 → **明细一条都写不进去**（用户反馈的「上传更新不了数据」）。 */
+      if(s.anomDaysSet && d) s.anomDaysSet[d] = 1;
       if(s.anomN < ANOM_MAX){
         var codes = '';
         if(kept){
@@ -3171,7 +3175,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
             （这正是「本地同步不进去、云端明细出不来」的原因）。 */
       anom: pickAnom(data, allDayIdx(data)),
       anomDates: data.dates.slice(),
-      anomDays: (data.anomDays || []).slice(),
+      anomDays: anomDaysOf(data),
       /* ★ 剔除构成也要上传：否则云端同步后「剔除明细」整块空白（它读的是 excl）。
          每天都带上（不分是否在本次上传范围内）—— 它极小（每天 4 个数字），
          服务端按天 upsert，重复传不会累加；若只传变化的那几天，其余天的构成永远补不齐。 */
@@ -3227,8 +3231,23 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
        · 整条完全一样 → 跳过（重复）
        · 整条有变化   → **覆盖**成新内容（这样单条数据结构更新也能生效）
      冲突时以**本机**为准（本机是刚解析出来的，更新）。 */
+  /* ★★ anomDays 归一成**日期字符串**再上传。
+     服务端曾经返回天序号，客户端原样回传后与「日期字符串」的匹配逻辑对不上 →
+     明细被静默丢弃（就是「上传更新不了数据」）。两端都做归一，杜绝来回错位。 */
+  function anomDaysOf(data){
+    var raw = (data && data.anomDays) || [];
+    var out = [];
+    for(var i=0;i<raw.length;i++){
+      var v = raw[i];
+      var dt = (typeof v === 'number') ? data.dates[v] : v;
+      if(dt && out.indexOf(dt) < 0) out.push(dt);
+    }
+    return out;
+  }
   function anomIdentity(r){ return r[0] + '|' + r[1] + '|' + r[2] }
-  function anomContent(r){ return r[3] + '|' + (r[4] ? 1 : 0) }
+  /* ★ 内容 = 身份之后的**全部**字段。写死第 3、4 项的话，
+     以后给明细增加字段时就不参与比较 → 看起来「没变化」→ 永远覆盖不上。 */
+  function anomContent(r){ return r.slice(3).join('\u0001') }
   function mergeAnom(cloud, local){
     var l = (local && local.anom) || [], c = (cloud && cloud.anom) || [];
     if(!l.length && !c.length) return cloud;
@@ -3408,7 +3427,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         if(payload.anom && payload.anom.length){
           payload.anom = pickAnom(D, allIdx);          // ★ 行号 → 稳定 rid
           payload.anomDates = D.dates.slice();
-          payload.anomDays = (D.anomDays || []).slice();
+          payload.anomDays = anomDaysOf(D);
         }
       }
       if(payload === null){
@@ -3428,7 +3447,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
             if(anOnly){
               body.anom = anOnly;
               body.anomDates = D.dates.slice();                    /* 天序号 → 日期的映射 */
-              if(D.anomDays && D.anomDays.length) body.anomDays = D.anomDays.slice();  /* 哪些天真的解析过 */
+              var ad = anomDaysOf(D);                              /* 哪些天真的解析过（日期字符串） */
+              if(ad.length) body.anomDays = ad;
             }
             await cApi('/api/upload', {
               method: 'POST',
