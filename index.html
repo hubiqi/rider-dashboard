@@ -3242,6 +3242,15 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       var dt = (typeof v === 'number') ? data.dates[v] : v;
       if(dt && out.indexOf(dt) < 0) out.push(dt);
     }
+    /* ★ 兜底：老缓存可能没有 anomDays 字段（或为空）——那就从明细记录自身推导出哪些天有明细，
+       否则会发出空的 anomDays，服务端会当成「已声明但没有任何天」→ 明细一条都写不进去。 */
+    if(!out.length && data && data.anom && data.anom.length){
+      for(var k=0;k<data.anom.length;k++){
+        var di = data.anom[k][0];
+        var d2 = data.dates && data.dates[di];
+        if(d2 && out.indexOf(d2) < 0) out.push(d2);
+      }
+    }
     return out;
   }
   function anomIdentity(r){ return r[0] + '|' + r[1] + '|' + r[2] }
@@ -3294,7 +3303,10 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
          由**服务端**在同一个请求内把下标映射成稳定 rid 再落库 —— 这样换设备/换顺序都不会错位。
          ⚠️ 曾经在这里改成直接发 rid，与服务端的「下标 → rid」映射方向相反，
             导致服务端查不到骑手、**明细全被丢弃**（表现就是「本地正常、同步下来异常」）。 */
-      var rec = [r[0], r[1], r[2], r[3], r[4]];
+      /* ★★ 必须**保留全部字段**（r.slice()），不能写死 [r0..r4]：
+         写死的话，以后给明细增加字段（违规类型、时间戳等）会在这里被丢掉，
+         服务端收到的永远是旧的 5 个字段 → 内容看起来没变 → **覆盖不上**（用户反馈的「更新不了」）。 */
+      var rec = r.slice(0);
       /* ★ 同一口径去重：身份 = 天+骑手+运单号；整条有变化 → 用后出现的那条覆盖 */
       var key = anomIdentity(rec), i = at[key];
       if(i === undefined){ at[key] = out.length; out.push(rec) }
@@ -3436,6 +3448,10 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
            载荷极小（每天 4 个数字），且服务端按天 upsert，重复传不会累加。 */
         var exOnly = pickExclByDate(D, allDayIdx(D));
         var anOnly = pickAnom(D, allDayIdx(D));
+        /* ★★ 补传结果必须**如实上报**。
+           以前这里是 `空 catch`，失败被静默吞掉，界面照样显示「☁️ 云端已是最新」——
+           用户看到的是「成功」，实际一条都没写进去，这正是「上传更新不了数据」却找不到原因的情形。 */
+        var upErr = '', note = '';
         if(exOnly || anOnly){
           try{
             /* ★ riders 必须带上：服务端要用它把明细里的 rid 映射成云端稳定序号 */
@@ -3444,21 +3460,33 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
             if(exOnly) body.exclByDate = exOnly;
             /* ★★ 明细也必须一起补！否则「运单号明细」永远只覆盖最初上传的那一天，
                点开别天/别列的加权数只会看到「没有这类异常单」（用户 2026-09-15 反馈）。 */
+            var ad = anomDaysOf(D);                                /* 哪些天真的解析过（日期字符串） */
+            if(!ad.length) ad = (D.dates || []).slice();           /* 兜底：实在没有就用全部天 */
             if(anOnly){
               body.anom = anOnly;
               body.anomDates = D.dates.slice();                    /* 天序号 → 日期的映射 */
-              var ad = anomDaysOf(D);                              /* 哪些天真的解析过（日期字符串） */
               if(ad.length) body.anomDays = ad;
             }
-            await cApi('/api/upload', {
+            var j2 = await cApi('/api/upload', {
               method: 'POST',
               body: { payload: body },   /* 不传 src：避免在「数据来源」列表里多出一条 */
             });
-          }catch(e){ /* 补传失败不影响主流程 */ }
+            if(j2 && j2.ok === false) throw new Error(j2.error || '服务端返回失败');
+            note = '（补传明细 ' + (anOnly ? anOnly.length + ' 条 / ' + ad.length + ' 天' : '0 条')
+                 + (exOnly ? ' · 剔除构成 ' + Object.keys(exOnly).length + ' 天' : '') + '）';
+          }catch(e){
+            upErr = String((e && e.message) || e);
+            note = '（明细补传失败：' + upErr.slice(0, 80) + '）';
+          }
+        }
+        if(upErr){
+          setStatus('⚠️ 日期内容与云端一致，但<b>明细/剔除构成的补传失败了</b>：<b>' + esc(upErr) +
+            '</b> —— 数据没有更新到云端。可稍后重试，或改用「⬆ 推到云端」强制全量重传。', true);
+          return false;                       // ★ 不再谎报成功
         }
         await cRefreshStatus();
         setStatus('☁️ 云端已是最新：本机 <b>' + D.dates.length + '</b> 天全部与云端一致（本地比对跳过 ' + localSkip +
-          ' 天）· ' + dataSummary());
+          ' 天）' + note + ' · ' + dataSummary());
         return true;
       }
       setStatus('⏳ 正在同步到云端（本地比对：需传 ' + (todo ? todo.length : D.dates.length) + ' 天，已跳过 ' + localSkip + ' 天）…');
