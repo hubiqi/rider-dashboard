@@ -1204,7 +1204,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var td = new TextDecoder('utf-8');
     var s = { buf:'', hdr:null, idx:null, rows:0, dates:{}, riders:{}, order:[], grid:{},
               skip:{ nofault:0, fault:0, undeliv:0, other:0 }, exclRows:[], warns:[],
-              anom:{}, anomN:0, respSeen:null };
+              anom:{}, anomN:0, anomDaysSet:{}, respSeen:null };
     function handleRow(xml){
       var cells = parseRow(xml, shared);
       if(!s.hdr){
@@ -1378,6 +1378,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
          编码：o超时 h高笔T8 e违规送达 c虚假报备出餐慢 g虚假改派吸单 t虚假改派偷准达
                m投诉 b差评 l索赔 | 未妥投：f物流责 H物流责+高笔 S物流责+星巴克 u在途未送达 n无责取消
          只记有异常的单（正常单不记），否则存储会爆。 */
+      if(s.anomDaysSet) s.anomDaysSet[dstr] = 1;    // ★ 这一天解析过（无论有没有异常单）
       if(s.anomN < ANOM_MAX){
         var codes = '';
         if(kept){
@@ -1456,6 +1457,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       v: 7, nf: NF,
       dates: dstr, last: dstr[dstr.length-1], riders: s.order, grid: grid,
       anom: anom,
+      /* 哪些天解析出了运单明细（含「这天确实没有异常单」）——云端据此判断覆盖率，
+         避免把「没解析过」误当成「没有异常」。 */
+      anomDays: Object.keys(s.anomDaysSet || {}).sort(),
       excl: buildExcl(s.exclRows),
       flags: [{key:'f1',label:'是否二呼单'},{key:'f2',label:'是否出餐慢报备'}],
       avail: { f1: s.idx.f1>=0, f2: (s.idx.f2>=0 || s.idx.report>=0),
@@ -3146,9 +3150,13 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       riders: data.riders,
       grid: idxs.map(function(i){ return data.grid[i] }),
       avail: data.avail || {},
-      /* ★ 异常运单明细：只带**本次上传的这些天**（云端按天存进 days.anom / 归档后进 rider_days.anom 列）。
-         这样换设备/清缓存后仍能看到运单号；体积可控（异常单本来就少）。 */
+      /* ★ 异常运单明细：带全部天（云端按天存进 days.anom / 归档后进 rider_days.anom 列）。
+         ★★ 必须同时给 anomDates：明细里的天序号是**全周期**的（0..N-1），
+            而上面 dates 只含本次变化的天 —— 服务端拿 dates 去映射会全部对不上、明细被丢光
+            （这正是「本地同步不进去、云端明细出不来」的原因）。 */
       anom: pickAnom(data, allDayIdx(data)),
+      anomDates: data.dates.slice(),
+      anomDays: (data.anomDays || []).slice(),
       /* ★ 剔除构成也要上传：否则云端同步后「剔除明细」整块空白（它读的是 excl）。
          每天都带上（不分是否在本次上传范围内）—— 它极小（每天 4 个数字），
          服务端按天 upsert，重复传不会累加；若只传变化的那几天，其余天的构成永远补不齐。 */
@@ -3318,6 +3326,10 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         /* 首传才走这里，明细一并带上（云端按天存两列，不动原有 cells 结构） */
         if(!(payload.anom && payload.anom.length)) delete payload.anom;
         payload.exclByDate = pickExclByDate(D, allIdx);
+        if(payload.anom && payload.anom.length){
+          payload.anomDates = D.dates.slice();
+          payload.anomDays = (D.anomDays || []).slice();
+        }
       }
       if(payload === null){
         /* ★ 日期全部一致时不传网格，但**仍然补传一次剔除构成** ——
