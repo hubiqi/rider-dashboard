@@ -360,8 +360,8 @@ tr.rrow:active{background:#f2f6ff}
     <span class="ctxt"><b>整商汇总</b><small>全团队口径：整体表现、四项考核指标、日期趋势、团队综合分</small></span>
   </div>
 
-  <section class="mod" data-name="昨日最新情况">
-  <div class="sec-title"><span class="dot"></span>昨日最新情况 <small id="lastTag"></small></div>
+  <section class="mod" data-name="最新数据">
+  <div class="sec-title"><span class="dot"></span>最新数据 <small id="lastTag"></small></div>
   <div class="grid kpi" id="kpiLast"></div>
   <div class="mixnote">
     <b>三行怎么读</b>：<i style="background:#7c3aed"></i>二呼 / <i style="background:#dc2626"></i>卡餐 / <i style="background:#059669"></i>正常 ——
@@ -3011,6 +3011,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   var EXP_MAX_PX      = 1.7e7;   // 17M 像素 ≈ 68MB 位图（兼顾清晰度与手机内存；iOS 画布上限 16.7M 也够用）
   var PREV_MAX_PX     = 8e6;     // 弹窗预览缩略图的像素预算（预览也一并放大，放大看细节不再糊）
   var PREV_MAX_W      = 1400;
+  var EXP_MIN_W       = 1088;    // ★ 导出宽度兜底 = 桌面 .wrap 的 max-width 1120 − 左右内边距 32
   var blobUrls = [];        // 待释放的 object URL
   function freeBlobs(){
     blobUrls.forEach(function(u){ try{ URL.revokeObjectURL(u) }catch(e){} });
@@ -3088,21 +3089,72 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     if(capped.length){ capped.forEach(function(s){ s.style.overflowX='visible'; s.style.overflowY='hidden' }) }
     return { node: clone, clipped: clipped };
   }
+  /* ★ 与出图环境等价的测量（v58b）
+     成图 = <foreignObject>（视口宽 = 成图像素宽）；测量 = iframe（视口宽 = 同一宽度）。
+     两者版式规则完全相同，所以量到的高度、发现的裁切都与成图一致。
+     ★ 不能再把克隆体挂到主文档里量 —— 主文档视口是手机宽度，@media 断点按手机判定，
+       而 SVG 按「宽 × 倍率」判定，两者会得出不同版式（就是 v58 那个 bug 的根）。 */
+  function measureInViewport(clone, w){
+    return new Promise(function(res){
+      var fr = document.createElement('iframe');
+      fr.setAttribute('aria-hidden', 'true');
+      fr.style.cssText = 'position:absolute;left:-99999px;top:0;border:0;width:'+w+'px;height:1200px';
+      document.body.appendChild(fr);
+      var d = fr.contentDocument;
+      d.open();
+      d.write('<!doctype html><html><head><meta charset="utf-8"><style>'+
+        document.querySelector('style').textContent+
+        '\nhtml,body{margin:0;padding:0;background:#f4f6fa}'+
+        '</style></head><body><div id="__eb" style="width:'+w+'px;box-sizing:border-box;padding:16px;'+
+        'background:#f4f6fa;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif">'+
+        '</div></body></html>');
+      d.close();
+      var box = d.getElementById('__eb');
+      var cl = d.importNode(clone, true);
+      cl.style.width = '';
+      box.appendChild(cl);
+
+      /* 溢出体检：把「内容被裁掉」量化出来 —— 用户能直接看到缺字/截断，肉眼看导出图很容易漏。
+         `.mixrow em` 这类带 ellipsis 的截断、卡片 overflow:hidden 的裁切都算。 */
+      var cut = [];
+      box.querySelectorAll('*').forEach(function(n){
+        var st = d.defaultView.getComputedStyle(n);
+        var sx = n.scrollWidth - n.clientWidth, sy = n.scrollHeight - n.clientHeight;
+        if(st.overflowX !== 'visible' && sx > 1){
+          cut.push({ t: n.tagName + (n.className ? '.' + String(n.className).split(' ')[0] : ''),
+                     tx: (n.textContent || '').trim().slice(0, 14), d: sx, dir: 'x' });
+        }
+        if(st.overflowY !== 'visible' && sy > 1){
+          cut.push({ t: n.tagName + (n.className ? '.' + String(n.className).split(' ')[0] : ''),
+                     tx: (n.textContent || '').trim().slice(0, 14), d: sy, dir: 'y' });
+        }
+      });
+      var out = { h: box.offsetHeight, cuts: cut, minFs: minFontSize(box), vw: w };
+      document.body.removeChild(fr);
+      res(out);
+    });
+  }
   async function modToPng(el, scale){
     var extra = extraWidth(el);
-    var innerW = (el.offsetWidth || 380) + extra;
+    /* ★★ 宽度兜底 + 视口一致化（v58b）——修「手机上导出的概览四卡排版全乱 / 底部一大片空白」
+       ── 病根 ──
+       导出的成图是把克隆体塞进 <foreignObject> 里渲染的。那时 **@media 断点按 SVG 视口判定**
+       （= 成图像素宽 = CSS 宽 × 倍率），**不是**按克隆体自身的 CSS 宽度。
+       于是手机上（视口 412）导出概览卡时：倍率 2.2 → SVG 视口 865 > 760
+       → 反而套用桌面 4 列布局，却只有 ~380px 可用宽 → 每张卡 ~90px，`overflow:hidden` 把内容全裁掉。
+       反过来，量高度时克隆体挂在**主文档**里，断点按 412 判定 → 2 列、更高 → 成图底部留一大片空白。
+       两类症状同一个根因：**测量环境与出图环境的视口不一致**。
+       ── 修法 ──
+       ① 宽度兜底到桌面宽度（EXP_MIN_W = 桌面 .wrap 的 1120 − 内边距 32），保证 4 列排得开，
+          也保证 w ≥ 821 > 760 → iframe 与 SVG 两侧都落在「桌面规则」区间，判定必然一致；
+       ② 量高/量裁切改到 **iframe（视口宽 = w）** 里做 —— 与 SVG 的版式环境严格等价。 */
+    var base = Math.max(el.offsetWidth || 380, EXP_MIN_W);
+    var innerW = base + extra;
     var c = exportClone(el, innerW), clone = c.node;
-    var holder = document.createElement('div');
-    holder.style.cssText = 'position:absolute;left:-99999px;top:0;width:'+(innerW+32)+'px;box-sizing:border-box;'+
-      'padding:16px;background:#f4f6fa;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif';
-    holder.appendChild(clone);
-    document.body.appendChild(holder);
-    clone.style.width = '';                     // 交给 holder 决定（减去内边距）
-    var w = innerW + 32, h = holder.offsetHeight;
-    var minFs = minFontSize(clone);             // ★ 必须在 holder 仍在文档里时量（计算样式才有效）
-    var css = document.querySelector('style').textContent;
+    var w = innerW + 32;
+    var m = await measureInViewport(clone, w);   // {h, cuts, minFs}
+    var h = m.h, cut = m.cuts, minFs = m.minFs;
     var xml = new XMLSerializer().serializeToString(clone);
-    document.body.removeChild(holder);
 
     /* ★ 倍率：目标是「最小字号 ≥ EXP_MIN_TEXT_PX」，再受像素 / 单边 / 绝对倍率三重约束 */
     var want = Math.min(EXP_MAX_SCALE, Math.max(1, EXP_MIN_TEXT_PX / minFs));
@@ -3116,6 +3168,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     /* ★ 让 SVG 直接按目标像素尺寸栅格化：外层 width/height = CSS 尺寸 × sc，viewBox 仍是 CSS 尺寸。
        浏览器按 w*sc 光栅化矢量内容 → 文字真清晰；旧写法（1× 画完再 ctx.scale）会把文字放大成糊的。 */
     var ow = Math.round(w*sc), oh = Math.round(h*sc);
+    var css = document.querySelector('style').textContent;
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+ow+'" height="'+oh+'" viewBox="0 0 '+w+' '+h+'">'+
       '<foreignObject x="0" y="0" width="'+w+'" height="'+h+'">'+
       '<div xmlns="http://www.w3.org/1999/xhtml" style="width:'+w+'px;height:'+h+'px;padding:16px;box-sizing:border-box;background:#f4f6fa">'+
@@ -3144,7 +3197,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       w: Math.round(w), h: Math.round(h),
       outW: full.w, outH: full.h, prevW: prev.w, prevH: prev.h,
       scale: sc, minFs: minFs, effPx: effPx, capped: capped, wantScale: Math.round(want*100)/100,
-      clipped: c.clipped
+      clipped: c.clipped,
+      cuts: cut
     };
   }
   function toast(msg, ms){
@@ -3164,7 +3218,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         '<div class="muted" style="font-size:11.5px;margin-top:2px">成图 '+res.outW+' × '+res.outH+' px（'+res.scale+'×）'+
           ' · 最小文字约 <b style="color:'+(res.capped?'#b45309':'#059669')+'">'+res.effPx+'px</b>'+
           (res.capped ? ' <span style="color:#b45309">⚠️ 未达清晰目标（'+EXP_MIN_TEXT_PX+'px）—— 内容过大已按上限导出，建议缩小筛选范围后再导出</span>' : '')+
-          (res.clipped ? ' · <span style="color:#b45309">内容过长已截断</span>' : '')+' · 长按图片可保存</div></div>'+
+          (res.clipped ? ' · <span style="color:#b45309">内容过长已截断</span>' : '')+
+          (res.cuts && res.cuts.length ? ' · <span style="color:#b45309">⚠️ '+res.cuts.length+' 处内容被裁切</span>' : '')+
+          ' · 长按图片可保存</div></div>'+
         '<button class="mclose" id="mclose">✕</button></div>'+
       '<div class="exp-body fitw" id="expBody">'+
         '<img id="prevImg" style="display:none">'+
