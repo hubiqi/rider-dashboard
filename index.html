@@ -249,8 +249,14 @@ td .bar{margin-right:6px}
 tr.rrow{cursor:pointer}
 tr.rrow:active{background:#f2f6ff}
 .modal{position:fixed;inset:0;background:rgba(16,24,40,.5);display:none;overflow:auto;
-  padding:14px;z-index:20;-webkit-backdrop-filter:blur(2px)}
+  /* ★ z-index 阶梯：表格表头 1 < 悬停提示 9 < 吸顶导航 30 < 弹窗 60 < 浮层提示 80
+     弹窗必须高于吸顶导航，否则导航条会压在弹窗标题上（用户 2026-09-15 反馈）。 */
+  padding:14px;z-index:60;-webkit-backdrop-filter:blur(2px)}
 .modal.show{display:flex}
+/* ★ 弹窗打开时锁住背景滚动（手机上不会「滑到背景」）。
+   用 :has() 做**同步**生效的主机制；JS 观察器（core 里）作为老 WebView 的兜底。
+   两者效果相同，重复设置不冲突。 */
+html:has(.modal.show),body:has(.modal.show){overflow:hidden}
 .modal-card{background:#fff;border-radius:16px;max-width:760px;width:100%;margin:auto;
   max-height:calc(100vh - 28px);overflow:auto;-webkit-overflow-scrolling:touch;padding:18px}
 .mhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
@@ -375,7 +381,7 @@ tr.rrow:active{background:#f2f6ff}
 .btn.ghost{background:#eef1f6;color:#344054;box-shadow:none}
 #toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(20px);
   background:#101828;color:#fff;font-size:12.5px;padding:9px 16px;border-radius:22px;
-  opacity:0;pointer-events:none;transition:.22s;z-index:30;max-width:82vw;text-align:center}
+  opacity:0;pointer-events:none;transition:.22s;z-index:80;max-width:82vw;text-align:center}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
@@ -2775,6 +2781,20 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     if(Date.now() - _modalOpenedAt < 450) return;   // 防「幽灵点击」刚打开就被关掉
     this.classList.remove('show');
   });
+
+  /* ★ 弹窗打开时锁住背景滚动。
+     弹窗的开关点很多（骑手/站点/指标/导出/异常明细…），逐个改容易漏，
+     这里用一个 class 观察器统一处理：只要 #modal 带上 .show 就锁 body。 */
+  (function lockBodyScroll(){
+    var mo = $('#modal'); if(!mo || !window.MutationObserver) return;
+    function sync(){
+      var on = mo.classList.contains('show');
+      document.documentElement.style.overflow = on ? 'hidden' : '';
+      document.body.style.overflow = on ? 'hidden' : '';
+    }
+    new MutationObserver(sync).observe(mo, { attributes: true, attributeFilter: ['class'] });
+    sync();
+  })();
 
   /* 点加权数 → 看具体运单号。用事件委托（行会随筛选重建，直接绑会失效）。
      ★ 必须 stopPropagation：行本身还有点开骑手明细的处理器。 */
