@@ -120,6 +120,17 @@ body.offline .cloudonly{display:none !important}
 .mixnote i{display:inline-block;width:7px;height:7px;border-radius:2px;margin:0 3px 0 1px;vertical-align:-1px}
 .mixnote code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:11px;color:#0f172a}
 
+/* ══════════ 异常运单：可点的加权数 ══════════
+   点一下看具体运单号 + 一键复制。虚线下划线暗示「可点」，小箭头是提示。 */
+.anomlink{cursor:pointer;border-bottom:1px dashed #94a3b8;padding-bottom:1px;
+  display:inline-flex;align-items:baseline;gap:1px}
+/* ★ 箭头用伪元素而不是 <i> 子节点：这样单元格的 textContent 仍是干净的数字，
+   不影响文本复制、导出与断言（一开始用了 <i>，把 6 条格式测试弄红了）。 */
+.anomlink::after{content:'›';font-size:10px;color:#94a3b8;margin-left:1px}
+.anomlink:hover{color:#2563eb;border-bottom-color:#2563eb}
+.anomlink:hover::after{color:#2563eb}
+.anomlink:active{opacity:.6}
+
 /* ══════════ 可折叠说明（默认收起） ══════════
    云同步模块、各模块的指标描述一律默认折叠：长文默认不占版面，需要时点开看。
    用原生 details/summary 元素（零 JS、可键盘操作、导出克隆时 open 状态一并保留 = 所见即所得）。
@@ -252,6 +263,9 @@ tr.rrow:active{background:#f2f6ff}
 .exp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;
   padding:11px 14px;border-bottom:1px solid var(--line);flex:0 0 auto;background:#fff}
 .exp-body{flex:1 1 auto;overflow:auto;-webkit-overflow-scrolling:touch;background:#f4f6fa;padding:10px}
+/* 弹窗头部右侧的按钮不许换行（窄屏下「关闭」曾被挤成两行） */
+.exp-head>.btn,.exp-head>button{flex:0 0 auto;white-space:nowrap}
+.exp-head>div:first-child{flex:1 1 auto;min-width:0}
 .exp-body img{border:1px solid #eaecf0;border-radius:8px;display:block;margin:0 auto}
 .exp-foot{display:flex;gap:8px;padding:9px 12px;border-top:1px solid var(--line);flex:0 0 auto;background:#fff}
 .exp-foot .btn{flex:1 1 0;white-space:nowrap}
@@ -651,6 +665,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   var F = { t:0, o:1, comp:2, acc:3, missAdd:4, early:5, t8hi:6, fakeCan:7,
             fakeGrab:8, fakeT8:9, cmpl:10, bad:11, claim:12, hi:13, star:14 };
   var NF = 15;
+  /* ★ 异常运单明细的规模上限：只记「命中了异常标记」的单，正常单不记。
+     ANOM_PERCELL 防单个骑手某天异常爆表；ANOM_MAX 防极端文件撑爆内存。 */
+  var ANOM_PERCELL = 400, ANOM_MAX = 200000;
   function matchB(b, s){
     var b1 = b>=2?1:0, b2 = b%2;
     if(s.f1!=='all' && (s.f1==='yes') !== (b1===1)) return false;
@@ -1166,7 +1183,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var rd = openEntry(z, sheetName).getReader();
     var td = new TextDecoder('utf-8');
     var s = { buf:'', hdr:null, idx:null, rows:0, dates:{}, riders:{}, order:[], grid:{},
-              skip:{ nofault:0, fault:0, undeliv:0, other:0 }, exclRows:[], warns:[] };
+              skip:{ nofault:0, fault:0, undeliv:0, other:0 }, exclRows:[], warns:[],
+              anom:{}, anomN:0 };
     function handleRow(xml){
       var cells = parseRow(xml, shared);
       if(!s.hdr){
@@ -1187,6 +1205,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
           cancelT: findCol(hdr,['运单取消时间']),
           deliverT: findCol(hdr,['骑手送达时间']),
           finishT:  findCol(hdr,['运单完成时间']),
+          oid:      findCol(hdr,['运单id','运单ID','运单Id','运单号','订单号']),
           status:  findCol(hdr,['运单状态']),
           toudou:  findCol(hdr,['是否妥投单']),
           resp:    findCol(hdr,['取消责任方']),
@@ -1322,6 +1341,37 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       if(cmpl) add[F.cmpl] = 1;
       if(bad) add[F.bad] = 1;
       if(claim) add[F.claim] = 1;
+      /* ★★ 异常运单明细：记下这一单命中了哪些异常标记 + 运单号，
+         供「点加权数 → 看具体是哪几单 + 一键复制」使用（用户 2026-09-15 提出）。
+         编码：o超时 h高笔T8 e违规送达 c虚假报备出餐慢 g虚假改派吸单 t虚假改派偷准达
+               m投诉 b差评 l索赔 | 未妥投：f物流责 H物流责+高笔 S物流责+星巴克 u在途未送达 n无责取消
+         只记有异常的单（正常单不记），否则存储会爆。 */
+      if(s.anomN < ANOM_MAX){
+        var codes = '';
+        if(kept){
+          if(isTo){ codes += 'o'; if(hi) codes += 'h' }
+        }
+        if(early) codes += 'e';
+        if(fakeCan) codes += 'c';
+        if(fakeGrab) codes += 'g';
+        if(fakeT8) codes += 't';
+        if(cmpl) codes += 'm';
+        if(bad) codes += 'b';
+        if(claim) codes += 'l';
+        if(!kept){
+          if(fault){ codes += 'f'; if(hi) codes += 'H'; if(star) codes += 'S' }
+          if(kind === 'undeliv') codes += 'u';
+          if(kind === 'nofault') codes += 'n';
+        }
+        if(codes){
+          var od = s.anom[d] || (s.anom[d] = {});
+          var oc = od[ri] || (od[ri] = []);
+          if(oc.length < ANOM_PERCELL){
+            oc.push([ (s.idx.oid>=0 ? String(cells[s.idx.oid]||'').trim() : ''), codes, kept?1:0 ]);
+            s.anomN++;
+          }
+        }
+      }
       var g = s.grid[d] || (s.grid[d] = {});
       var cell = g[ri];
       if(!cell){ cell = g[ri] = new Array(NF*4); for(var z2=0;z2<NF*4;z2++) cell[z2]=0; }
@@ -1360,9 +1410,20 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     grid.forEach(function(g){ g.forEach(function(e){
       for(var b=0;b<4;b++){ to += e[1+b*NF+F.o]; comp += e[1+b*NF+F.comp]; accN += e[1+b*NF+F.acc]; }
     })});
+    // 异常明细：把日期字符串换成天序号（与 grid 的排序一致）
+    var dmap = {}; dstr.forEach(function(x,i){ dmap[x] = i });
+    var anom = [];
+    Object.keys(s.anom).forEach(function(dd){
+      var di = dmap[normDate(dd)]; if(di === undefined) return;
+      var per = s.anom[dd];
+      Object.keys(per).forEach(function(rk){
+        per[rk].forEach(function(rec){ anom.push([di, +rk, rec[0], rec[1], rec[2]]) });
+      });
+    });
     return {
       v: 7, nf: NF,
       dates: dstr, last: dstr[dstr.length-1], riders: s.order, grid: grid,
+      anom: anom,
       excl: buildExcl(s.exclRows),
       flags: [{key:'f1',label:'是否二呼单'},{key:'f2',label:'是否出餐慢报备'}],
       avail: { f1: s.idx.f1>=0, f2: (s.idx.f2>=0 || s.idx.report>=0),
@@ -1982,6 +2043,146 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     { k:'satR',   lab:'不满意',      num:true }
   ];
   function COLS(){ return view==='quality' ? COLS_Q : COLS_T }
+
+  /* ══════════ 异常运单明细（点加权数 → 看具体运单号 → 一键复制） ══════════
+     用户诉求（2026-09-15）：点这些异常数据能看具体运单号，并支持一键复制。
+     数据来自解析期记下的 D.anom（只记命中了异常标记的单，正常单不记）。
+     ★ 云端的聚合数据不含明细：从云端载入时这里会退化为「不可点」并给出说明。 */
+  var ANOM_LAB = {
+    o:'超时单', h:'高笔T8非准时', e:'违规送达成立', c:'虚假报备出餐慢取消',
+    g:'虚假改派吸单/规避妥投', t:'虚假改派偷准达', m:'投诉', b:'差评', l:'索赔',
+    f:'物流责取消', H:'物流责＋高笔单', S:'物流责＋星巴克', u:'在途未送达', n:'无责取消'
+  };
+  /* 与解析器完全同源的加权口径（改这里必须同步改解析器，测试会比对总和） */
+  function anomWeights(codes, kept){
+    var has = function(c){ return codes.indexOf(c) >= 0 ? 1 : 0 };
+    var e=has('e'), c=has('c'), g=has('g'), t=has('t'), o=has('o'), h=has('h'),
+        m=has('m'), b=has('b'), l=has('l'), f=has('f'), H=has('H'), S=has('S');
+    return {
+      o: o,
+      missW: kept ? (e*2 + c + g) : (f + H + S*2 + c + g),
+      t8W:   o + h + c + t + e*2,
+      satW:  m*5 + b*5 + l + c
+    };
+  }
+  function anomOf(ri, kinds, dts){
+    var out = [];
+    (D.anom || []).forEach(function(r){
+      if(r[1] !== ri || dts.indexOf(r[0]) < 0) return;
+      var w = anomWeights(r[3], r[4]);
+      var hit = 0;
+      for(var i=0;i<kinds.length;i++) hit += (w[kinds[i]] || 0);
+      if(hit > 0) out.push({ di:r[0], id:r[2], codes:r[3], kept:r[4], w:w, hit:hit });
+    });
+    return out;
+  }
+  var ANOM_META = {
+    missW: { t:'非妥投·加权单', w:'missW',
+             f:'配送成功：违规送达×2 ＋ 虚假报备出餐慢 ＋ 虚假改派吸单；<br>取消/未妥投：物流责×1 ＋ 物流责且高笔×1 ＋ 物流责且星巴克×2 ＋ 虚假报备出餐慢 ＋ 虚假改派吸单' },
+    t8W:   { t:'T8·加权超时', w:'t8W',
+             f:'超时单 ＋ 高笔T8非准时 ＋ 虚假报备出餐慢取消 ＋ 虚假改派偷准达 ＋ 违规送达×2' },
+    satW:  { t:'不满意·加权单', w:'satW',
+             f:'投诉×5 ＋ 差评×5 ＋ 索赔×1 ＋ 虚假报备出餐慢取消×1' },
+    o:     { t:'超时单', w:'o', f:'仅数配送成功的单里超时的（不包含取消/未妥投）' }
+  };
+  function copyText(t, btn){
+    var ok = function(){
+      if(!btn) return;
+      var o = btn.getAttribute('data-lab') || btn.textContent;
+      btn.setAttribute('data-lab', o);
+      btn.textContent = '✅ 已复制';
+      setTimeout(function(){ btn.textContent = o }, 1300);
+    };
+    var fb = function(){
+      var ta = document.createElement('textarea');
+      ta.value = t; ta.setAttribute('readonly','');
+      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select(); ta.setSelectionRange(0, ta.value.length);
+      try{ document.execCommand('copy'); ok() }catch(e){}
+      document.body.removeChild(ta);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(ok, fb);
+    } else fb();
+  }
+  function openAnom(ri, kind){
+    var meta = ANOM_META[kind]; if(!meta) return;
+    var dts = dayList();
+    var rows = anomOf(ri, [meta.w], dts);
+    var x = null;
+    byRider(sel, dts).forEach(function(y){ if(y.ri === ri) x = y });
+    var who = (x ? x.n + '（' + x.st + '）' : '骑手 #' + ri);
+    var dlab = scope.day === '__all__'
+      ? D.dates[0] + ' ~ ' + D.last + '（' + dts.length + ' 天）' : scope.day;
+    var sum = rows.reduce(function(a,b){ return a + b.hit }, 0);
+    var h = '<div class="exp-head"><div><b>'+meta.t+' · 明细</b>'+
+      '<div class="muted" style="font-size:11.5px;margin-top:3px">'+esc(who)+' · '+esc(dlab)+'</div>'+
+      '<div class="note" style="margin-top:8px">加权 = '+meta.f+'</div></div>'+
+      '<button class="btn ghost" id="mclose">关闭</button></div>';
+    if(!(D.anom && D.anom.length)){
+      h += '<div class="note" style="border-left:3px solid #94a3b8;background:#f8fafc">'+
+           '<b>当前数据没有运单级明细</b><br>'+
+           '云端累积的只存了聚合计数（每天/骑手 × 15 个计数），不含运单号。'+
+           '要看具体运单号，请直接<b>上传原始报表</b>（运单明细/考核明细）。</div>';
+    } else if(!rows.length){
+      h += '<div class="empty">该骑手在当前范围内没有这类异常单</div>';
+    } else {
+      h += '<div class="scroll" style="max-height:52vh"><table><thead><tr>'+
+           '<th>日期</th><th>运单号</th><th>命中原因</th><th style="text-align:right">计分</th>'+
+           '</tr></thead><tbody>' + rows.map(function(r){
+        var rs = [];
+        for(var i=0;i<r.codes.length;i++){ var c = r.codes.charAt(i); if(ANOM_LAB[c]) rs.push(ANOM_LAB[c]) }
+        return '<tr><td class="muted" style="white-space:nowrap">'+D.dates[r.di].slice(5)+'</td>'+
+          '<td style="font-family:ui-monospace,Menlo,monospace;font-size:12px">'+(r.id ? esc(r.id) : '<span class="muted">（报表无运单号列）</span>')+'</td>'+
+          '<td>'+(rs.join(' ＋ ') || '—')+'</td>'+
+          '<td style="text-align:right;font-weight:600">'+r.hit+'</td></tr>';
+      }).join('') + '</tbody></table></div>'+
+      '<div class="muted" style="margin-top:10px">共 <b>'+rows.length+'</b> 张异常单 · 合计加权 <b>'+sum+'</b>'+
+      '（加权是「分数」不是「张数」：同一张单命中多个标记会叠加）</div>'+
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+
+      '<button class="btn" id="anomCopy1">📋 复制全部运单号</button>'+
+      '<button class="btn ghost" id="anomCopy2">📋 复制运单号＋原因</button>'+
+      '<button class="btn ghost" id="anomCopy3">📋 复制运单号＋原因＋计分</button></div>';
+    }
+    var mo = $('#modal');
+    mo.className = 'modal';
+    mo.innerHTML = '<div class="exp-body">'+h+'</div>';
+    mo.classList.add('show');
+    _modalOpenedAt = Date.now();
+    var mc = $('#mclose'); if(mc) mc.onclick = function(){ mo.classList.remove('show') };
+    var ids = rows.map(function(r){ return r.id }).filter(function(v){ return v });
+    var b1 = $('#anomCopy1');
+    if(b1) b1.onclick = function(){
+      if(!ids.length) return;
+      copyText(ids.join('\n'), b1);
+    };
+    var b2 = $('#anomCopy2');
+    if(b2) b2.onclick = function(){
+      var lines = rows.map(function(r){
+        var rs = []; for(var i=0;i<r.codes.length;i++){ var c=r.codes.charAt(i); if(ANOM_LAB[c]) rs.push(ANOM_LAB[c]) }
+        return r.id + '\t' + D.dates[r.di] + '\t' + rs.join('＋');
+      });
+      copyText(lines.join('\n'), b2);
+    };
+    var b3 = $('#anomCopy3');
+    if(b3) b3.onclick = function(){
+      var lines = ['运单号\t日期\t命中原因\t'+meta.t];
+      rows.forEach(function(r){
+        var rs = []; for(var i=0;i<r.codes.length;i++){ var c=r.codes.charAt(i); if(ANOM_LAB[c]) rs.push(ANOM_LAB[c]) }
+        lines.push(r.id + '\t' + D.dates[r.di] + '\t' + rs.join('＋') + '\t' + r.hit);
+      });
+      copyText(lines.join('\n'), b3);
+    };
+  }
+  /* 加权数：非 0 就可点。★ 即便当前数据没有运单级明细也保持可点 ——
+     否则用户根本发现不了这个功能；点开时会明确说明「明细需要上传原始报表」。 */
+  function anomCell(val, kind, ri){
+    var n = Math.round(val);
+    if(!n) return ''+n;
+    return '<span class="anomlink" data-ri="'+ri+'" data-kind="'+kind+'" title="点击查看具体运单号">'+
+           n+'</span>';
+  }
   function renderTable(){
     var cols = COLS();
     var dts = dayList();
@@ -2071,16 +2272,16 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
           '<td style="font-weight:600">'+esc(x.n)+'</td>'+
           '<td class="muted">'+esc(x.st)+'</td>'+
           '<td class="num">'+x.t+'</td>'+
-          '<td class="num">'+Math.round(x.missAdd)+'</td>'+
+          '<td class="num">'+anomCell(x.missAdd,'missW',x.ri)+'</td>'+
           '<td class="num">'+pct(x.s1)+'</td>'+
           '<td class="num" style="color:#dc2626;font-weight:600">'+pct(x.missR)+'</td>'+
-          '<td class="num">'+Math.round(x.t8W)+'</td>'+
+          '<td class="num">'+anomCell(x.t8W,'t8W',x.ri)+'</td>'+
           '<td class="num">'+pct(x.s2)+'</td>'+
           '<td class="num" style="color:#be185d;font-weight:600">'+pct(x.t8Late)+'</td>'+
           '<td class="num">'+Math.round(x.s)+'</td>'+
           '<td class="num">'+pct(x.s3)+'</td>'+
           '<td class="num" style="color:#7c3aed;font-weight:600">'+fmt(x.avgComp,1)+'<span class="muted"> s</span></td>'+
-          '<td class="num">'+Math.round(x.satW)+'</td>'+
+          '<td class="num">'+anomCell(x.satW,'satW',x.ri)+'</td>'+
           '<td class="num">'+pct(x.s4)+'</td>'+
           '<td class="num" style="color:#d97706;font-weight:600">'+pct(x.satR)+'</td></tr>';
       }).join('');
@@ -2094,7 +2295,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
           '<td style="font-weight:600">'+esc(x.n)+'</td>'+
           '<td class="muted">'+esc(x.st)+'</td>'+
           '<td class="num">'+x.t+'</td>'+
-          '<td class="num">'+x.o+'</td>'+
+          '<td class="num">'+anomCell(x.o,'o',x.ri)+'</td>'+
           '<td class="num" style="color:'+rc+';font-weight:700">'+pct(x.r)+'</td>'+
           '<td class="num">'+pct(x.shareO)+'</td>'+
           '<td class="num">'+Math.round(x.s)+'</td>'+
@@ -2417,6 +2618,20 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     this.classList.remove('show');
   });
 
+  /* 点加权数 → 看具体运单号。用事件委托（行会随筛选重建，直接绑会失效）。
+     ★ 必须 stopPropagation：行本身还有点开骑手明细的处理器。 */
+  (function bindAnom(){
+    var tb = document.querySelector('#riderTable');
+    if(!tb) return;
+    tb.addEventListener('click', function(e){
+      var el = e.target;
+      while(el && el !== tb && !(el.className && String(el.className).indexOf('anomlink') >= 0)) el = el.parentNode;
+      if(!el || el === tb) return;
+      e.stopPropagation(); e.preventDefault();
+      openAnom(+el.getAttribute('data-ri'), el.getAttribute('data-kind'));
+    }, true);   // 捕获阶段，抢在行处理器之前
+  })();
+
   /* ================= 站点明细弹窗（整个周期） ================= */
   /* 站点层级的计分上下文（整个周期、当前筛选下的所有站点的率值合计） */
   function scoreStCtx(st, s){
@@ -2628,6 +2843,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   function normalizeData(dat){
     if(!dat || !dat.grid) return dat;
     if(!dat.warns) dat.warns = [];                 // 口径告警（缺失时补齐，避免渲染报错）
+    if(!dat.anom) dat.anom = [];                   // 异常运单明细（云端数据没有 → 退化为不可点）
     var stride = dat.nf || 0;
     if(!stride){
       var c = null;
@@ -2993,6 +3209,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       var j = await cApi('/api/data');
       var d = normalizeData(j.data);
       mergeExcl(d, D);          // ★ 本机的剔除构成不能因为一次拉取就丢掉
+      if(D && D.anom && D.anom.length && !(d.anom && d.anom.length)) d.anom = D.anom;  // 运单明细同理
       if(!d.dates || !d.dates.length){
         if(!silent) setStatus('云端暂无数据');
         await cRefreshStatus();
@@ -3026,7 +3243,12 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       if(payload && payload === D){
         /* 全量传：把 D 浅拷贝一份并补上 exclByDate（不改动本机的 D） */
         var allIdx = []; for(var ai=0; ai<D.dates.length; ai++) allIdx.push(ai);
-        payload = {}; for(var kk in D){ if(Object.prototype.hasOwnProperty.call(D, kk)) payload[kk] = D[kk] }
+        payload = {};
+        for(var kk in D){
+          if(!Object.prototype.hasOwnProperty.call(D, kk)) continue;
+          if(kk === 'anom') continue;              // ★ 运单明细只留本机，不上云（会让请求体暴涨被拒）
+          payload[kk] = D[kk];
+        }
         payload.exclByDate = pickExclByDate(D, allIdx);
       }
       if(payload === null){
@@ -3061,6 +3283,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       if(rep.updated) parts.push('<b style="color:#b45309">更新 ' + rep.updated + ' 天</b>');
       if(rep.skipped) parts.push('<b style="color:#64748b">服务端跳过 ' + rep.skipped + ' 天</b>');
       var merged = normalizeData(j.data);
+      /* ★ 云端不存运单级明细 → 推送后若直接采用云端结果，本机刚解析出的运单号会被清空。
+         这里把本机的 anom 带回合并结果（云端本来就只负责聚合数据）。 */
+      if(D && D.anom && D.anom.length && !(merged.anom && merged.anom.length)) merged.anom = D.anom;
       if(merged.dates && merged.dates.length){
         D = merged;
         applyData(true);
