@@ -110,6 +110,37 @@ body.offline .cloudonly{display:none !important}
 .mixnote b{color:#334155}
 .mixnote i{display:inline-block;width:7px;height:7px;border-radius:2px;margin:0 3px 0 1px;vertical-align:-1px}
 .mixnote code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:11px;color:#0f172a}
+
+/* ══════════ 可折叠说明（默认收起） ══════════
+   云同步模块、各模块的指标描述一律默认折叠：长文默认不占版面，需要时点开看。
+   用原生 details/summary 元素（零 JS、可键盘操作、导出克隆时 open 状态一并保留 = 所见即所得）。
+   ★★ CSS 里**绝不能出现裸的 <**：导出时这段 CSS 会被塞进 SVG 的 <style> 里，
+     SVG 按 XML 解析，裸 < 会让整张图解析失败（表现为「图片渲染失败」）。教训见 memory。 */
+.fold{margin:10px 4px 0;border:1px solid #eef1f6;border-radius:10px;background:#fbfcfe}
+.fold>summary{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:12px;font-weight:600;
+  color:#475569;cursor:pointer;user-select:none;list-style:none;border-radius:10px;line-height:1.4}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary::before{content:"▸";flex:0 0 auto;font-size:11px;color:#94a3b8;transition:transform .15s}
+.fold[open]>summary::before{transform:rotate(90deg)}
+.fold[open]>summary{border-bottom:1px solid #eef1f6;border-radius:10px 10px 0 0}
+.fold>summary:hover{color:#2563eb;background:#f5f8fd}
+.fold>summary .ftitle{flex:0 0 auto;white-space:nowrap}
+.fold>summary .fstate{flex:0 0 auto;white-space:nowrap;font-size:11px;font-weight:600;color:#2563eb;
+  background:#eff4ff;border-radius:20px;padding:2px 9px}
+.fold.sec[open]>summary .fstate{display:none}
+.fold>summary .fsub{font-weight:400;color:#94a3b8;font-size:11px;flex:1 1 0;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fold>.fbody{padding:9px 12px 11px;font-size:11.5px;color:var(--sub);line-height:1.75}
+.fold>.fbody b{color:#344054}
+/* 折叠体内的原说明块不再重复画自己的盒子 */
+.fold>.fbody>.mixnote,.fold>.fbody>.note,.fold>.fbody>.cnote,.fold>.fbody>.mtabcap{margin:0;padding:0;background:none;border:0}
+.fold.sec{margin:26px 4px 0}
+.fold.sec>summary{font-size:15px;font-weight:700;color:var(--ink);padding:0;gap:8px}
+.fold.sec>summary::before{font-size:12px}
+.fold.sec[open]>summary{border-bottom:0;padding-bottom:12px}
+.fold.sec>summary .dot{flex:0 0 auto;align-self:center;width:5px;height:16px;border-radius:3px;background:linear-gradient(#2563eb,#7c3aed)}
+.fold.sec>summary .fsub{color:var(--sub);font-size:12px;font-weight:400}
+.fold .fold{margin:8px 0 2px}
 .up{color:var(--danger)}.down{color:var(--ok)}
 .pill{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600}
 .pill.r{background:#fef2f2;color:#b91c1c}.pill.g{background:#ecfdf5;color:#047857}
@@ -293,9 +324,11 @@ tr.rrow:active{background:#f2f6ff}
   </div>
 
   <!-- ══════════════ 云同步（Cloudflare D1 长期存储，增量去重） ══════════════
+       ★ 默认折叠收起（用户要求）：只有一个横条占位，点开才展开整块。
        ★ 离线单文件版会在 <body> 上打 .offline，整块自动隐藏（见下方 CSS）。 -->
-  <div class="sec-title cloudonly"><span class="dot"></span>云同步 <small>数据存到 Cloudflare，以后只需上传新增的日期，自动去重增量合并</small></div>
-  <div class="card cloudonly">
+  <details class="fold sec cloudonly" id="cloudFold">
+  <summary><span class="dot"></span><span class="ftitle">云同步</span><span class="fsub" id="cloudSub">数据存到 Cloudflare，以后只需上传新增的日期，自动去重增量合并</span><span class="fstate" id="cloudState">点开输入访问口令</span></summary>
+  <div class="card">
     <!-- 未解锁：提交一次密钥（提交后立刻清空输入框；密钥不会存进浏览器） -->
     <div class="crow" id="cLockRow">
       <span class="clab">访问口令</span>
@@ -320,7 +353,9 @@ tr.rrow:active{background:#f2f6ff}
       <button class="btn ghost" id="cPush" title="把当前本机数据全量推到云端（同样会去重）">⬆ 推到云端</button>
       <label class="cchk"><input type="checkbox" id="cAuto" checked> 上传 xlsx 后自动同步到云端</label>
     </div>
-    <div class="cnote">
+    <details class="fold">
+      <summary>使用说明 · 增量同步怎么算 · 口令安全与防爆破</summary>
+      <div class="fbody"><div class="cnote">
       <b>怎么用</b>：解锁<b>一次</b> → 以后每次拿到新报表，直接「⬆ 载入数据」上传即可，不用再填密钥。<br>
       存储按<b>天</b>为单位、以内容哈希去重：<b>新日期自动追加</b>，<b>同一天内容相同则跳过</b>，<b>内容有更新则覆盖</b>那一天 ——
       不会重复累加，也不必重复上传历史数据。30 天前的数据自动归档成「骑手/天」冷表，读取时冷热合并，页面看到的仍是完整周期。<br>
@@ -332,9 +367,10 @@ tr.rrow:active{background:#f2f6ff}
       <b>⬆ 只传变化的数据</b>：上传前会先在<b>本地</b>把数据整理成「每骑手每天 4 类单 × 15 个计数」并算出内容哈希，
       与云端清单比对后<b>只发送有变化/新增的日期</b>，未变的一天都不重传。<br>
       <span class="muted">数据存在你自己的 Cloudflare 账号里（D1 数据库 <code>riderdash</code>），页面本身不含数据。</span>
-    </div>
+      </div></div>
+    </details>
   </div>
-  </div>
+  </details>
 
   <div id="emptyState" style="display:none">
     <div class="card emptycard">
@@ -363,27 +399,31 @@ tr.rrow:active{background:#f2f6ff}
   <section class="mod" data-name="最新数据">
   <div class="sec-title"><span class="dot"></span>最新数据 <small id="lastTag"></small></div>
   <div class="grid kpi" id="kpiLast"></div>
-  <div class="mixnote">
+  <details class="fold"><summary>指标说明 · 三行怎么读 <span class="fsub">二呼/卡餐两行是对大盘的影响值</span></summary>
+  <div class="fbody"><div class="mixnote">
     <b>三行怎么读</b>：<i style="background:#7c3aed"></i>二呼 / <i style="background:#dc2626"></i>卡餐 / <i style="background:#059669"></i>正常 ——
     <b>二呼、卡餐两行的「超时率」「单均复合」是<u>对大盘的影响值</u></b>（不是该类型自身的率），
     算法：<code>影响占比 × 该类型自身均值 × 大盘单量 ÷ (大盘单量 − 该类型单量)</code>，
     化简即 <code>该类型总量 ÷ (大盘单量 − 该类型单量)</code>；
     行尾「占超时 / 占复合 x%」是该类型对大盘该项<b>总量的贡献占比</b>。<br>
     「正常单」= 卡餐与二呼都排除的剩余池，显示<b>自身率值</b>（它本身就是剔除坏单后的基准）。悬停任一行可看该类型自身的率。
-  </div>
+  </div></div>
+  </details>
   </section>
 
   <section class="mod" data-name="全周期概览">
   <div class="sec-title"><span class="dot"></span>全周期概览</div>
   <div class="grid kpi" id="kpiAll"></div>
-  <div class="mixnote">
+  <details class="fold"><summary>指标说明 · 三行怎么读 <span class="fsub">二呼/卡餐两行是对大盘的影响值</span></summary>
+  <div class="fbody"><div class="mixnote">
     <b>三行怎么读</b>：<i style="background:#7c3aed"></i>二呼 / <i style="background:#dc2626"></i>卡餐 / <i style="background:#059669"></i>正常 ——
     <b>二呼、卡餐两行的「超时率」「单均复合」是<u>对大盘的影响值</u></b>（不是该类型自身的率），
     算法：<code>影响占比 × 该类型自身均值 × 大盘单量 ÷ (大盘单量 − 该类型单量)</code>，
     化简即 <code>该类型总量 ÷ (大盘单量 − 该类型单量)</code>；
     行尾「占超时 / 占复合 x%」是该类型对大盘该项<b>总量的贡献占比</b>。<br>
     「正常单」= 卡餐与二呼都排除的剩余池，显示<b>自身率值</b>（它本身就是剔除坏单后的基准）。悬停任一行可看该类型自身的率。
-  </div>
+  </div></div>
+  </details>
   </section>
 
   <section class="mod" data-name="质量四指标">
@@ -435,8 +475,12 @@ tr.rrow:active{background:#f2f6ff}
       </div>
     </div>
     <div id="scoreTeam"></div>
-    <div class="note" id="scoreNote"></div>
-    <div class="note" style="margin-top:8px">站点排行、骑手两端分别见下方「站点」「骑手明细」两个维度，计分口径与这里联动。</div>
+    <details class="fold"><summary>指标说明 · 计分公式与占比口径</summary>
+    <div class="fbody">
+      <div class="note" id="scoreNote"></div>
+      <div class="note" style="margin-top:8px">站点排行、骑手两端分别见下方「站点」「骑手明细」两个维度，计分口径与这里联动。</div>
+    </div>
+    </details>
   </div>
   </section>
 
@@ -450,10 +494,11 @@ tr.rrow:active{background:#f2f6ff}
       <button data-v="date">按日期</button>
     </div>
     <div class="scroll" id="exclTableWrap" style="margin-top:10px"></div>
-    <div class="note" id="exclNote"></div>
+    <details class="fold"><summary>指标说明 · 剔除口径</summary>
+    <div class="fbody"><div class="note" id="exclNote"></div></div>
+    </details>
   </div>
   </section>
-
   <!-- ══════════════════════ 二、站点 ══════════════════════ -->
   <div class="chapter">
     <span class="cnum">2</span>
@@ -482,7 +527,9 @@ tr.rrow:active{background:#f2f6ff}
         <button data-s="rate">自身率值</button>
       </div>
     </div>
-    <div class="mtabcap" style="margin-top:2px">四列「占比」= 计分代入值（站点不放大）→ 可直接复算综合分</div>
+    <details class="fold"><summary>指标说明 · 占比列口径</summary>
+    <div class="fbody"><div class="mtabcap" style="margin-top:0">四列「占比」= 计分代入值（站点不放大）→ 可直接复算综合分</div></div>
+    </details>
     <div id="scoreSites"></div>
   </div>
   </section>
@@ -520,7 +567,11 @@ tr.rrow:active{background:#f2f6ff}
       <div class="seg" id="sortSeg"></div>
     </div>
     <div class="scroll"><table id="riderTable"><thead></thead><tbody></tbody></table></div>
+    <details class="fold"><summary>指标说明 · 列口径与剔除规则</summary>
+    <div class="fbody">
     <div class="note" id="tblNote"></div>
+    </div>
+    </details>
   </div>
   </section>
 
@@ -534,14 +585,18 @@ tr.rrow:active{background:#f2f6ff}
         <button data-s="rate">自身率值</button>
       </div>
     </div>
-    <div class="mtabcap" style="margin-top:2px">四列「占比」= <b>团队占比原式</b>（该骑手占团队该项问题量的份额，合计恒 100%）；<b>放大只用于计分</b>，悬停行可见放大后的代入值 · 点行看逐日明细</div>
+    <details class="fold"><summary>指标说明 · 占比列口径</summary>
+    <div class="fbody"><div class="mtabcap" style="margin-top:0">四列「占比」= <b>团队占比原式</b>（该骑手占团队该项问题量的份额，合计恒 100%）；<b>放大只用于计分</b>，悬停行可见放大后的代入值 · 点行看逐日明细</div></div>
+    </details>
     <div id="scoreRiders"></div>
   </div>
   </section>
 
   </div><!-- /dashBody -->
 
-  <div class="note" id="method"></div>
+  <details class="fold sec" id="methodFold"><summary>指标方法说明 <span class="fsub">四项考核指标的完整定义 · 点击展开</span></summary>
+  <div class="fbody"><div class="note" id="method"></div></div>
+  </details>
 </div>
 <div class="tip" id="tip"></div>
 <div id="toast"></div>
@@ -2635,10 +2690,19 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var el = $('#cAuto'); return !!(el && el.checked);
   }
   function cState(txt, cls){
+    /* ★ 云同步整块默认折叠，口令框藏在里面 —— 折叠条上必须说清「现在需要在哪儿操作」，
+       否则又变成「找不到地方输入口令」。所以状态徽标跟着解锁状态走。 */
+    var badge = $('#cloudState');
+    if(badge){
+      if(cls === 'ok'){ badge.textContent = '已解锁'; badge.style.color = '#059669'; badge.style.background = '#ecfdf5' }
+      else if(cls === 'bad'){ badge.textContent = '连接失败 · 点开重试'; badge.style.color = '#b42318'; badge.style.background = '#fef3f2' }
+      else { badge.textContent = unlockedNow() ? '已解锁' : '点开输入访问口令'; badge.style.color = '#2563eb'; badge.style.background = '#eff4ff' }
+    }
     var el = $('#cState'); if(!el) return;
     el.textContent = txt;
     el.className = 'cstate' + (cls ? ' ' + cls : '');
   }
+  function unlockedNow(){ return !!$('#cLockRow') && $('#cLockRow').style.display === 'none' }
   function cLockUI(unlocked, expMs){
     if($('#cLockRow')) $('#cLockRow').style.display = unlocked ? 'none' : '';
     if($('#cUnlockRow')) $('#cUnlockRow').style.display = unlocked ? '' : 'none';
@@ -3156,19 +3220,31 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var h = m.h, cut = m.cuts, minFs = m.minFs;
     var xml = new XMLSerializer().serializeToString(clone);
 
-    /* ★ 倍率：目标是「最小字号 ≥ EXP_MIN_TEXT_PX」，再受像素 / 单边 / 绝对倍率三重约束 */
+    /* ★ 倍率：目标是「最小字号 ≥ EXP_MIN_TEXT_PX」，这是**硬要求**（用户明确：成图最小文字必须 22px）。
+       像素总量只是内存约束 —— 若按目标倍率会超出预算，就把成图**纵向切片**成多张
+       （每片仍按目标倍率渲染），而不是把倍率压下来。压倍率 = 用户看见的小字糊成一团，正是要避免的。 */
     var want = Math.min(EXP_MAX_SCALE, Math.max(1, EXP_MIN_TEXT_PX / minFs));
-    var byPx   = Math.sqrt(EXP_MAX_PX / (w*h));
     var bySide = Math.min(EXP_MAX_SIDE / w, EXP_MAX_SIDE / h);
-    var sc = Math.max(1, Math.min(want, byPx, bySide));
+    var sc = Math.max(1, Math.min(want, bySide));
     sc = Math.floor(sc*100)/100;
+    /* 向下取两位小数可能刚好差零点几像素（如 11.5×1.91=21.96），补到恰好达标 */
+    var need = Math.ceil(EXP_MIN_TEXT_PX / minFs * 100) / 100;
+    if(Math.round(minFs*sc) < EXP_MIN_TEXT_PX && need <= EXP_MAX_SCALE && need <= bySide){
+      sc = need;
+    }
     var effPx  = Math.max(1, Math.round(minFs * sc));      // 成图里最小字号实际是多少 px
-    var capped = effPx < EXP_MIN_TEXT_PX;                  // 是否受预算限制没达到目标字号（按实际像素判定，避免四舍五入误报）
+    var capped = effPx < EXP_MIN_TEXT_PX;                  // 极窄/极长导致连 4× 上限都不够（正常数据不会触发）
 
     /* ★ 让 SVG 直接按目标像素尺寸栅格化：外层 width/height = CSS 尺寸 × sc，viewBox 仍是 CSS 尺寸。
        浏览器按 w*sc 光栅化矢量内容 → 文字真清晰；旧写法（1× 画完再 ctx.scale）会把文字放大成糊的。 */
     var ow = Math.round(w*sc), oh = Math.round(h*sc);
-    var css = document.querySelector('style').textContent;
+    /* ★ 纵向切片：单片像素超过预算就切开，保证每片都能按目标倍率渲染（字号优先于像素总量） */
+    var maxOutH = Math.max(600, Math.floor(EXP_MAX_PX / ow));
+    var slices = Math.max(1, Math.ceil(oh / maxOutH));
+    /* ★★ CSS 要嵌进 SVG 的 <style> 里，而 SVG 按 **XML** 解析 —— 裸的 < 或 & 会让整张图解析失败，
+       表现是「图片渲染失败」（踩过一次：CSS 注释里写了 <details>，导出直接全挂）。
+       这里统一做一次 XML 转义兜底；实体在 XML 里会被还原，CSS 语义不变。 */
+    var css = xmlText(document.querySelector('style').textContent);
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+ow+'" height="'+oh+'" viewBox="0 0 '+w+' '+h+'">'+
       '<foreignObject x="0" y="0" width="'+w+'" height="'+h+'">'+
       '<div xmlns="http://www.w3.org/1999/xhtml" style="width:'+w+'px;height:'+h+'px;padding:16px;box-sizing:border-box;background:#f4f6fa">'+
@@ -3180,26 +3256,43 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       setTimeout(function(){ res(false) }, 15000);
     });
     if(!ok) throw new Error('图片渲染失败');
-    var cv = document.createElement('canvas');
-    cv.width = ow; cv.height = oh;
-    var ctx = cv.getContext('2d');
-    ctx.fillStyle = '#f4f6fa'; ctx.fillRect(0,0,cv.width,cv.height);
-    ctx.drawImage(img,0,0);                     // 尺寸已一致，无需再缩放
-    var full = { w: cv.width, h: cv.height };
-    var pv = downScale(cv, PREV_MAX_W, PREV_MAX_PX);
-    var prev = { w: pv.width, h: pv.height };
-    var prevBlob = await toBlob(pv);
-    var fullBlob = await toBlob(cv);
-    cv.width = cv.height = 0; pv.width = pv.height = 0;   // 立即释放位图内存
-    if(!prevBlob || !fullBlob) throw new Error('图片编码失败（内容过大）');
+    var parts = [];
+    for(var si=0; si<slices; si++){
+      var y0 = Math.round(si*oh/slices), y1 = Math.round((si+1)*oh/slices), ph = y1-y0;
+      var cv = document.createElement('canvas');
+      cv.width = ow; cv.height = ph;
+      var ctx = cv.getContext('2d');
+      ctx.fillStyle = '#f4f6fa'; ctx.fillRect(0,0,ow,ph);
+      ctx.drawImage(img, 0, y0, ow, ph, 0, 0, ow, ph);   // 尺寸已一致，无需再缩放
+      var pv = downScale(cv, PREV_MAX_W, PREV_MAX_PX);
+      var prevBlob = await toBlob(pv);
+      var fullBlob = await toBlob(cv);
+      if(!prevBlob || !fullBlob){
+        cv.width = cv.height = 0; pv.width = pv.height = 0;
+        parts.forEach(function(p){ URL.revokeObjectURL(p.dl); URL.revokeObjectURL(p.url) });
+        throw new Error('图片编码失败（内容过大）');
+      }
+      parts.push({ url: makeUrl(prevBlob), dl: makeUrl(fullBlob),
+                   w: ow, h: ph, prevW: pv.width, prevH: pv.height });
+      cv.width = cv.height = 0; pv.width = pv.height = 0;   // 立即释放位图内存
+    }
+    var p0 = parts[0];
     return {
-      url: makeUrl(prevBlob), dl: makeUrl(fullBlob),
+      url: p0.url, dl: p0.dl, parts: parts, slices: slices,
       w: Math.round(w), h: Math.round(h),
-      outW: full.w, outH: full.h, prevW: prev.w, prevH: prev.h,
+      outW: p0.w, outH: p0.h, fullW: ow, fullH: oh, prevW: p0.prevW, prevH: p0.prevH,
       scale: sc, minFs: minFs, effPx: effPx, capped: capped, wantScale: Math.round(want*100)/100,
       clipped: c.clipped,
       cuts: cut
     };
+  }
+  /* 嵌入 SVG（XML）前的文本转义：& 必须最先处理，否则会把后面产生的 &lt; 再转一次 */
+  function xmlText(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+  /* 成图总像素（多片时是各片之和）——用于「内存预算」类判断 */
+  function totalPx(res){
+    var t = 0; (res.parts||[{w:res.outW,h:res.outH}]).forEach(function(p){ t += p.w*p.h });
+    return t;
   }
   function toast(msg, ms){
     var t = $('#toast');
@@ -3215,8 +3308,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     mo.innerHTML = '<div class="modal-card">'+
       '<div class="exp-head"><div style="min-width:0">'+
         '<div class="mtitle" style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(name)+' · 导出图片</div>'+
-        '<div class="muted" style="font-size:11.5px;margin-top:2px">成图 '+res.outW+' × '+res.outH+' px（'+res.scale+'×）'+
-          ' · 最小文字约 <b style="color:'+(res.capped?'#b45309':'#059669')+'">'+res.effPx+'px</b>'+
+        '<div class="muted" style="font-size:11.5px;margin-top:2px">成图 '+(res.slices>1? res.fullW+' × '+res.fullH+'（切 '+res.slices+' 张）' : res.outW+' × '+res.outH)+' px（'+res.scale+'×）'+
+          ' · 最小文字 <b style="color:'+(res.capped?'#b45309':'#059669')+'">'+res.effPx+'px</b>'+
           (res.capped ? ' <span style="color:#b45309">⚠️ 未达清晰目标（'+EXP_MIN_TEXT_PX+'px）—— 内容过大已按上限导出，建议缩小筛选范围后再导出</span>' : '')+
           (res.clipped ? ' · <span style="color:#b45309">内容过长已截断</span>' : '')+
           (res.cuts && res.cuts.length ? ' · <span style="color:#b45309">⚠️ '+res.cuts.length+' 处内容被裁切</span>' : '')+
@@ -3224,19 +3317,46 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         '<button class="mclose" id="mclose">✕</button></div>'+
       '<div class="exp-body fitw" id="expBody">'+
         '<img id="prevImg" style="display:none">'+
+        '<div id="prevMore" style="display:none"></div>'+
         '<div id="prevFail" class="muted" style="display:none;margin:20px auto;padding:18px;text-align:center;'+
           'max-width:300px;border:1px dashed #d0d5dd;border-radius:10px;font-size:12.5px">'+
           '当前设备内存不足以预览这张长图，请直接点「下载 PNG」保存原图</div>'+
       '</div>'+
       '<div class="exp-foot">'+
         '<button class="btn ghost" id="modeBtn">整图</button>'+
-        '<a class="btn" download="'+fn+'" id="dlBtn" href="'+res.dl+'" style="text-decoration:none;display:inline-block;text-align:center">下载 PNG</a>'+
+        '<a class="btn" download="'+fn+'" id="dlBtn" href="'+res.dl+'" style="text-decoration:none;display:inline-block;text-align:center">'+(res.slices>1?'下载第 1/'+res.slices+' 张':'下载 PNG')+'</a>'+
+        (res.slices>1 ? '<span id="dlMore" style="display:flex;gap:6px;flex-wrap:wrap"></span>' : '')+
         (res.back ? '<button class="btn ghost" id="mback">'+esc(res.backLabel||'返回')+'</button>' : '')+
         '<button class="btn ghost" id="mclose2">关闭</button>'+
       '</div></div>';
     mo.classList.add('show');
     _modalOpenedAt = Date.now();
     var pi = $('#prevImg'), body = $('#expBody'), mode = 'fitw';
+    /* ★ 切片的其余几张：各自给预览与下载入口（每张都能单独长按保存） */
+    if(res.slices > 1){
+      var more = $('#prevMore');
+      more.style.display = 'block';
+      for(var k=1; k<res.slices; k++){
+        var im = document.createElement('img');
+        im.src = res.parts[k].url;
+        im.style.cssText = 'display:block;max-width:100%;margin-top:10px;border-radius:8px;border:1px solid #eaecf0';
+        var cap = document.createElement('div');
+        cap.className = 'muted'; cap.style.cssText = 'font-size:11.5px;margin:4px 0 12px';
+        cap.textContent = '第 '+(k+1)+' / '+res.slices+' 张';
+        more.appendChild(cap); more.appendChild(im);
+      }
+      var dlm = $('#dlMore');
+      dlm.style.display = 'flex';
+      for(var k2=1; k2<res.slices; k2++){
+        var a = document.createElement('a');
+        a.className = 'btn ghost';
+        a.download = fn.replace(/\.png$/, '_'+(k2+1)+'.png');
+        a.href = res.parts[k2].dl;
+        a.textContent = '下载第 '+(k2+1)+' 张';
+        a.style.textDecoration = 'none';
+        dlm.appendChild(a);
+      }
+    }
     function applyMode(){
       if(!pi.naturalWidth) return;
       /* ★ 加了下限：弹窗若正处于隐藏态（clientWidth=0），算出的负宽度会被浏览器忽略、看起来像「按钮失灵」 */
@@ -3269,6 +3389,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   // 关闭弹窗后再释放 blob（立即释放会让正在显示的图片变成空白）
   function freeBlobsLater(res){
     var urls = [res.url, res.dl];
+    (res.parts||[]).forEach(function(p){ urls.push(p.url, p.dl) });   // 切片的每一张也要释放
     setTimeout(function(){
       urls.forEach(function(u){ try{ URL.revokeObjectURL(u) }catch(e){} });
     }, 60000);
