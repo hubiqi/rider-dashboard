@@ -24,6 +24,15 @@ header.hero .navback{display:inline-block;margin-bottom:10px;font-size:12px;colo
   text-decoration:none;background:rgba(255,255,255,.16);padding:4px 10px;border-radius:20px}
 header.hero .navback:hover{opacity:1;background:rgba(255,255,255,.26)}
 header.hero .range{margin-top:6px;font-size:12.5px;opacity:.9}
+header.hero .quota{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+header.hero .quota .q{display:inline-flex;align-items:baseline;gap:5px;background:rgba(255,255,255,.14);
+  border-radius:8px;padding:3px 9px;font-size:11.5px;line-height:1.5;white-space:nowrap}
+header.hero .quota .q .ql{opacity:.85}
+header.hero .quota .q b{font-weight:700}
+header.hero .quota .q.ok b{color:#a7f3d0}
+header.hero .quota .q.warn b{color:#fde68a}
+header.hero .quota .q.bad b{color:#fecaca}
+header.hero .quota .qhint{font-size:11px;opacity:.75;align-self:center}
 header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,255,.18);
   border:1px solid rgba(255,255,255,.35);padding:4px 10px;border-radius:20px;font-size:12px}
 .sec-title{display:flex;align-items:baseline;gap:8px;margin:26px 4px 12px;font-size:15px;font-weight:700;
@@ -310,6 +319,8 @@ tr.rrow:active{background:#f2f6ff}
     <h1>骑手超时绩效看板</h1>
     <div class="range" id="range"></div>
     <div class="badge" id="heroBadge"></div>
+    <!-- D1 用量：★ 仅在口令解锁后显示（数据来自受鉴权的 /api/quota，服务端不给未解锁者） -->
+    <div class="quota" id="heroQuota" hidden></div>
   </header>
 
   <div class="sec-title"><span class="dot"></span>数据源 <small>上传绩效明细 xlsx 自动刷新 · 全程本机解析<span class="cloudonly">；解锁云同步后会上传到你自己账号</span></small></div>
@@ -2701,6 +2712,59 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var el = $('#cState'); if(!el) return;
     el.textContent = txt;
     el.className = 'cstate' + (cls ? ' ' + cls : '');
+    /* 云状态一变就同步 D1 用量的显示/隐藏（已解锁才显示） */
+    syncQuota(cls === 'ok');
+  }
+
+  /* ══════════ D1 用量（★ 仅在口令解锁后显示）══════════════
+     ★★ 为什么「解锁后才显示」是可靠的：数据来自 /api/quota，它位于 /api/* 之下，
+        会被服务端中间件先鉴权 —— 未解锁（没有有效 HttpOnly 会话）直接拿不到数字，
+        不是靠前端把它藏起来。前端这里只是不显示，服务端那一层才是真闸门。
+     ★★ 密钥不外泄：查询 Cloudflare 分析需要的令牌只存在于**服务端环境变量**，
+        前端既看不到它、响应体里也没有它。前端全程只跟自己站的 /api/quota 说话。
+     ★ 展示口径：存储（单库上限 500 MB）+ 表行数 + 今日读/写行数与**剩余**行数。 */
+  var quotaAt = 0, quotaBusy = false;
+  function qn(n){ return String(n == null ? 0 : n).replace(/\B(?=(\d{3})+(?!\d))/g, ',') }
+  function qCls(p){ return p >= 90 ? 'bad' : (p >= 70 ? 'warn' : 'ok') }
+  function quotaHtml(j){
+    var h = '', db = j.db || {}, u = j.usage || null, p;
+    if(db.bytesLabel){
+      p = db.pctOfDbLimit == null ? 0 : db.pctOfDbLimit;
+      h += '<span class="q '+qCls(p)+'" title="D1 免费额度：单库上限 500 MB"><span class="ql">D1 单库</span>'+
+           '<b>'+db.bytesLabel+'</b><span class="ql">/ 500 MB · 剩 '+db.remainingLabel+'</span></span>';
+    }
+    h += '<span class="q" title="各表行数合计（冷表按归档汇总推算）"><span class="ql">表行数</span>'+
+         '<b>'+qn(j.rowsTotal)+'</b></span>';
+    if(u){
+      h += '<span class="q '+qCls(u.readPct)+'" title="D1 免费额度：每日 5,000,000 行（按 UTC 日切分）">'+
+           '<span class="ql">今日读</span><b>'+qn(u.rowsRead)+'</b>'+
+           '<span class="ql">/ 500 万 · 剩 '+qn(u.rowsReadLeft)+' 行</span></span>';
+      h += '<span class="q '+qCls(u.writePct)+'" title="D1 免费额度：每日 100,000 行（按 UTC 日切分）">'+
+           '<span class="ql">今日写</span><b>'+qn(u.rowsWritten)+'</b>'+
+           '<span class="ql">/ 10 万 · 剩 '+qn(u.rowsWrittenLeft)+' 行</span></span>';
+    }else{
+      h += '<span class="q"><span class="ql">今日读写用量暂不可用</span></span>';
+    }
+    return h;
+  }
+  function syncQuota(force){
+    var box = $('#heroQuota'); if(!box) return;
+    if(!unlockedNow()){ box.hidden = true; box.innerHTML = ''; quotaAt = 0; return }
+    var now = Date.now();
+    if(!force && now - quotaAt < 60000) return;      // 60 秒内不重复查询（省 D1 读配额）
+    if(quotaBusy) return;
+    quotaBusy = true; quotaAt = now;
+    box.hidden = false;
+    box.innerHTML = '<span class="qhint">D1 用量查询中…</span>';
+    cApi('/api/quota').then(function(j){
+      quotaBusy = false;
+      if(!unlockedNow()){ box.hidden = true; box.innerHTML = ''; return }
+      box.innerHTML = quotaHtml(j);
+    }).catch(function(e){
+      quotaBusy = false;
+      if(!unlockedNow()){ box.hidden = true; box.innerHTML = ''; return }
+      box.innerHTML = '<span class="qhint">D1 用量暂不可用：'+String(e && e.message || e).slice(0,60)+'</span>';
+    });
   }
   function unlockedNow(){ return !!$('#cLockRow') && $('#cLockRow').style.display === 'none' }
   function cLockUI(unlocked, expMs){
