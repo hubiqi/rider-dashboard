@@ -169,7 +169,7 @@ body.offline .cloudonly{display:none !important}
 @media(min-width:821px){.row.split{grid-template-columns:1.55fr 1fr}}
 .ctrl{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .seg{display:inline-flex;background:#eef1f6;border-radius:10px;padding:3px}
-.seg button{border:0;background:transparent;padding:6px 12px;border-radius:8px;font-size:12.5px;
+.seg button{border:0;background:transparent;padding:5px 10px;border-radius:8px;font-size:12px;
   color:#475467;font-weight:600;cursor:pointer}
 .seg button.on{background:#fff;color:var(--brand);box-shadow:0 1px 3px rgba(16,24,40,.12)}
 select,input[type=search]{border:1px solid var(--line);background:#fff;border-radius:9px;padding:6px 10px;
@@ -240,7 +240,7 @@ button.tag.on{background:linear-gradient(120deg,#2563eb,#7c3aed);color:#fff;bord
 .btn{background:linear-gradient(120deg,#2563eb,#7c3aed);color:#fff;border:0;border-radius:10px;
   padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(37,99,235,.28)}
 .btn:active{transform:translateY(1px)}
-.upstatus{font-size:12px;color:var(--sub);line-height:1.6}
+.upstatus{font-size:11.5px;color:var(--sub);line-height:1.55}
 th.sorth{user-select:none}
 th.sorth:hover{color:var(--brand)}
 th.sorth.on{color:var(--brand)}
@@ -286,6 +286,71 @@ tr.rrow:active{background:#f2f6ff}
 .chapter .ctxt{display:flex;flex-direction:column;gap:2px;min-width:0}
 .chapter .ctxt b{font-size:16px;color:#1e293b;letter-spacing:.5px}
 .chapter .ctxt small{font-size:11.5px;color:#64748b;line-height:1.4}
+
+/* ══════════ 维度导航（整商 / 站点 / 骑手）══════════
+   运营的用法是「先看大盘 → 再找站点 → 再找骑手」，所以按这三个维度分块并给个可点的导航条，
+   不用再一路往下滚着找。 */
+/* ★ 不用 backdrop-filter：部分 Android WebView 上会引发渲染异常（截图空白），换成纯色更稳、也更快 */
+.navbar{position:sticky;top:0;z-index:30;display:flex;gap:6px;margin:14px 0 0;padding:7px;
+  background:#fff;
+  border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 14px rgba(16,24,40,.06)}
+.navbar button{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1px;
+  padding:7px 6px;border:0;border-radius:9px;background:transparent;cursor:pointer;transition:.15s;
+  font-size:13px;font-weight:700;color:#64748b;font-family:inherit;line-height:1.25}
+.navbar button .nsub{font-size:10.5px;font-weight:400;color:#94a3b8;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.navbar button:hover{background:#f4f7fd;color:#2563eb}
+.navbar button.on{background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;
+  box-shadow:0 3px 10px rgba(37,99,235,.3)}
+.navbar button.on .nsub{color:rgba(255,255,255,.82)}
+
+/* ══════════ 问题速览（每章顶部，运营最先要看的东西）══════════
+   把「谁有问题、问题多大、先找谁」直接算出来摆在最前面，不让人自己去表里翻。 */
+.qnav{display:flex;flex-wrap:wrap;gap:8px;margin:-6px 0 14px}
+.qnav .qchip{display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:9px;
+  font-size:12px;border:1px solid #e5e9f0;background:#fff;line-height:1.4}
+.qnav .qchip b{font-weight:700}
+.qnav .qchip .qlab{color:#94a3b8;font-size:11.5px}
+.qnav .qchip.sev3{border-color:#fecaca;background:#fff5f5}
+.qnav .qchip.sev3 b{color:#b42318}
+.qnav .qchip.sev2{border-color:#fed7aa;background:#fffaf3}
+.qnav .qchip.sev2 b{color:#b45309}
+.qnav .qchip.sev1{border-color:#fde68a;background:#fffdf4}
+.qnav .qchip.sev1 b{color:#a16207}
+.qnav .qchip.sev0{border-color:#bbf7d0;background:#f6fef9}
+.qnav .qchip.sev0 b{color:#047857}
+.qnav .qhead{flex:1 1 100%;font-size:12px;color:#64748b;margin:2px 0 -2px}
+.qnav .qhead b{color:#1e293b}
+
+/* ★ 待办清单：最差的对象 + 主要问题指标，一眼看出「今天先处理谁」 */
+.qlist{display:flex;flex-direction:column;gap:0;border:1px solid #e8edf5;border-radius:12px;
+  overflow:hidden;background:#fff}
+.qlist .qrow{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid #f1f5f9;
+  font-size:12.5px;line-height:1.45}
+.qlist .qrow:first-child{border-top:0}
+.qlist .qrow .rank{flex:0 0 auto;width:20px;height:20px;border-radius:6px;display:flex;
+  align-items:center;justify-content:center;font-size:11px;font-weight:800;background:#eef2f7;color:#64748b}
+.qlist .qrow.sev3 .rank{background:#fee4e2;color:#b42318}
+.qlist .qrow.sev2 .rank{background:#ffedd5;color:#b45309}
+.qlist .qrow.sev1 .rank{background:#fef3c7;color:#a16207}
+.qlist .qrow .who{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qlist .qrow .who i{font-style:normal;color:#94a3b8;font-size:11.5px;margin-left:5px}
+.qlist .qrow .why{flex:0 0 auto;font-size:11.5px;color:#b45309;background:#fffbeb;
+  border-radius:6px;padding:2px 7px;white-space:nowrap}
+.qlist .qrow .sco{flex:0 0 auto;font-weight:800;font-size:13px;min-width:38px;text-align:right}
+.qlist .qrow .go{flex:0 0 auto;color:#94a3b8;font-size:14px}
+.qlist .qrow[data-ri]{cursor:pointer}
+.qlist .qrow[data-ri]:hover{background:#f7faff}
+.qlist .qempty{padding:12px;color:#059669;font-size:12.5px;text-align:center;background:#f6fef9}
+@media(max-width:520px){
+  .navbar button{font-size:12px}
+  .navbar button .nsub{display:none}
+  /* ★ 「主要扣分」是关键信息，手机上必须能看到 —— 换到第二行，不省略 */
+  .qlist .qrow{flex-wrap:wrap;row-gap:3px;padding:9px 10px}
+  .qlist .qrow .who{flex:1 1 auto}
+  .qlist .qrow .why{flex:1 1 100%;order:5;background:none;padding:0;margin-left:30px;
+    color:#94a3b8;font-size:11px}
+}
 /* 质量指标卡：可点 + 迷你折线 + 最新/全周期两行 */
 .metcard{cursor:pointer;transition:.15s;display:flex;flex-direction:column}
 .metcard:hover{border-color:#c7d2fe;box-shadow:0 6px 20px rgba(37,99,235,.13);transform:translateY(-1px)}
@@ -339,13 +404,19 @@ tr.rrow:active{background:#f2f6ff}
 
   <div class="sec-title"><span class="dot"></span>数据源 <small>上传绩效明细 xlsx 自动刷新 · 全程本机解析<span class="cloudonly">；解锁云同步后会上传到你自己账号</span></small></div>
   <div class="card">
-    <div class="uprow">
-      <input type="file" id="fileInput" accept=".xlsx,.xls,.json" style="display:none">
-      <button class="btn" id="upBtn">⬆ 载入数据</button>
-      <button class="btn ghost" id="expDataBtn" title="把本机数据导出为 .json，便于换设备导入">⬇ 导出数据</button>
-      <button class="btn ghost" id="clrBtn" title="清除本机保存的数据">🗑 清空</button>
-      <span id="upStatus" class="upstatus"></span>
-    </div>
+    <!-- ★ 操作按钮收进折叠：载入/导出/清空是低频动作，天天要看的「状态」保持在折叠条上 -->
+    <details class="fold" style="margin:0">
+      <summary>载入 / 导出 / 清空 <span class="fsub" id="srcHint">点开操作</span></summary>
+      <div class="fbody" style="padding:2px 0 4px">
+        <div class="uprow">
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.json" style="display:none">
+          <button class="btn" id="upBtn">⬆ 载入数据</button>
+          <button class="btn ghost" id="expDataBtn" title="把本机数据导出为 .json，便于换设备导入">⬇ 导出数据</button>
+          <button class="btn ghost" id="clrBtn" title="清除本机保存的数据">🗑 清空</button>
+        </div>
+      </div>
+    </details>
+    <div id="upStatus" class="upstatus" style="margin-top:9px"></div>
     <!-- ★ 口径告警常驻区：解析期发现的口径问题长期显示，不会被状态栏刷新覆盖（如缺「运单状态」列） -->
     <div id="warnBox" style="display:none"></div>
   </div>
@@ -417,11 +488,19 @@ tr.rrow:active{background:#f2f6ff}
   <div class="sec-title"><span class="dot"></span>筛选标签 <small>切换后以下三个维度全部联动</small></div>
   <div class="card" id="filterBar"></div>
 
-  <!-- ══════════════════════ 一、整商汇总 ══════════════════════ -->
-  <div class="chapter">
+  <!-- 维度导航：运营的顺序是「大盘 → 站点 → 骑手」，点一下直接跳到对应维度 -->
+  <nav class="navbar" id="dimNav">
+    <button data-go="ch1" class="on">① 整商<span class="nsub">大盘行不行 · 问题在哪</span></button>
+    <button data-go="ch2">② 站点<span class="nsub">哪个站拖后腿</span></button>
+    <button data-go="ch3">③ 骑手<span class="nsub">哪个骑手拖后腿</span></button>
+  </nav>
+
+  <!-- ══════════════════════ 一、整商 ══════════════════════ -->
+  <div class="chapter" id="ch1">
     <span class="cnum">1</span>
-    <span class="ctxt"><b>整商汇总</b><small>全团队口径：整体表现、四项考核指标、日期趋势、团队综合分</small></span>
+    <span class="ctxt"><b>整商</b><small>大盘行不行 · 四项考核指标 · 问题集中在哪</small></span>
   </div>
+  <div class="card" id="ch1Sum" style="margin-top:8px"></div>
 
   <section class="mod" data-name="最新数据">
   <div class="sec-title"><span class="dot"></span>最新数据 <small id="lastTag"></small></div>
@@ -527,10 +606,11 @@ tr.rrow:active{background:#f2f6ff}
   </div>
   </section>
   <!-- ══════════════════════ 二、站点 ══════════════════════ -->
-  <div class="chapter">
+  <div class="chapter" id="ch2">
     <span class="cnum">2</span>
-    <span class="ctxt"><b>站点</b><small>站点维度：卡餐/二呼影响 + 全周期对比 + 最新表现 + 综合分排行</small></span>
+    <span class="ctxt"><b>站点</b><small>哪个站拖后腿 · 差在哪一项</small></span>
   </div>
+  <div class="card" id="ch2Sum" style="margin-top:8px"></div>
 
   <section class="mod" data-name="站点卡餐二呼影响">
   <div class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small>各站超时里有多少是商家出餐慢（卡餐）造成的</small></div>
@@ -562,10 +642,11 @@ tr.rrow:active{background:#f2f6ff}
   </section>
 
   <!-- ══════════════════════ 三、骑手明细 ══════════════════════ -->
-  <div class="chapter">
+  <div class="chapter" id="ch3">
     <span class="cnum">3</span>
-    <span class="ctxt"><b>骑手明细</b><small>逐人明细排行（可搜索/筛选/排序）+ 综合分两端（最好/最差）</small></span>
+    <span class="ctxt"><b>骑手</b><small>哪个骑手拖后腿 · 差在哪一项</small></span>
   </div>
+  <div class="card" id="ch3Sum" style="margin-top:8px"></div>
 
   <section class="mod" data-name="骑手明细排行" id="riderRank">
   <div class="sec-title"><span class="dot"></span>骑手明细排行</div>
@@ -4253,6 +4334,161 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       '</div>';
   }
 
+  /* ══════════════ 问题速览（运营视角）══════════════
+     运营打开看板只问三件事：① 大盘今天行不行、问题在哪 ② 该找哪些站点 ③ 该找哪些骑手。
+     这里把答案直接算出来摆在每章最前面 —— 不用自己去表里翻。
+     ★ 口径与下方明细完全一致（同一套 scoreCtx / deductOf），不会出现「摘要说 A 最差、表里是 B」。 */
+  var MET_LAB4 = ['非妥投', 'T8超时', '单均复合', '不满意'];
+  function sevOfScore(sc){ return sc >= 95 ? 0 : (sc >= 90 ? 1 : (sc >= 80 ? 2 : 3)) }
+  function worstOf(m, ctx){
+    var d = deductOf(m, ctx, scoreMode), mx = 0, i;
+    for(i = 1; i < 4; i++) if(d[i] > d[mx]) mx = i;
+    return { d: d, sum: d[0]+d[1]+d[2]+d[3], idx: mx, val: d[mx] };
+  }
+  /* 一个「问题对象」清单：最差在前，一眼看出先处理谁 */
+  function qlist(rows, opts){
+    if(!rows.length) return '<div class="qempty">✅ 这一段没有明显异常的'+(opts.what||'对象')+'</div>';
+    var head = opts.head ? '<div class="qhead">'+opts.head+'</div>' : '';
+    var body = rows.map(function(x, i){
+      var w = x._w, sev = sevOfScore(x._sc);
+      var pctOfDed = w.sum > 0 ? Math.round(w.val / w.sum * 100) : 0;
+      return '<div class="qrow sev'+sev+'"'+(opts.click ? ' data-'+opts.click+'="'+x[opts.click]+'"' : '')+'>'+
+        '<span class="rank">'+(i+1)+'</span>'+
+        '<span class="who">'+esc(opts.name(x))+
+          (opts.sub && opts.sub(x) ? '<i>'+esc(opts.sub(x))+'</i>' : '')+'</span>'+
+        '<span class="why">'+(w.val > 0.05 ? '主要扣分：'+MET_LAB4[w.idx]+' '+fmt(w.val,1)+' 分（占 '+pctOfDed+'%）'
+                                            : '各单项均未明显扣分')+'</span>'+
+        '<span class="sco" style="color:'+scoreColor(x._sc)+'">'+fmt(x._sc, 1)+'</span>'+
+        (opts.click ? '<span class="go">›</span>' : '')+
+      '</div>';
+    }).join('');
+    return head + '<div class="qlist">'+body+'</div>';
+  }
+  function renderSummaries(){
+    if(!D) return;
+    var dts = dayList(), vw = $('#ch1Sum');
+    /* ── ① 整商：大盘分数 + 四项扣分（最大那项就是主要问题）── */
+    if(vw){
+      var ctxS = scoreCtx(sel, dts, 'station');
+      var stArr = byStation(sel, dts).filter(function(x){ return x.t > 0 });
+      var rows = stArr.map(function(x){ var d = deductOf(x, ctxS, scoreMode); return { t: x.t, d: d, sum: d[0]+d[1]+d[2]+d[3] } });
+      var tt = rows.reduce(function(a, b){ return a + b.t }, 0) || 1;
+      var cd = [0,1,2,3].map(function(i){ return rows.reduce(function(a, b){ return a + b.d[i]*b.t/tt }, 0) });
+      var DT = cd.reduce(function(a, b){ return a + b }, 0);
+      var sc = Math.max(0, Math.min(100, 100 - DT));
+      var mx = 0, i;
+      for(i = 1; i < 4; i++) if(cd[i] > cd[mx]) mx = i;
+      var chips = '<span class="qchip sev'+sevOfScore(sc)+'"><span class="qlab">团队综合分</span><b>'+fmt(sc,1)+'</b></span>';
+      for(i = 0; i < 4; i++){
+        chips += '<span class="qchip sev'+(cd[i] >= 6 ? 2 : (cd[i] >= 2.5 ? 1 : 0))+'">'+
+          '<span class="qlab">'+['①','②','③','④'][i]+' '+MET_LAB4[i]+'</span>'+
+          '<b>扣 '+fmt(cd[i],1)+'</b></span>';
+      }
+      var t2 = aggScope(sel, dts);
+      chips += '<span class="qchip"><span class="qlab">超时率</span><b>'+pct(t2.r)+'</b></span>';
+      chips += '<span class="qchip"><span class="qlab">单量</span><b>'+t2.t+'</b></span>';
+      /* 一句话结论 + 明确点名「短板是哪个指标」—— 运营要的就是这一句 */
+      /* 结论按 5 档给出（与分数色阶一致），措辞贴合运营的处置语气 */
+      var verdict = sc >= 95 ? ['大盘良好，没有明显短板', '#047857']
+                  : sc >= 90 ? ['大盘正常，保持即可', '#059669']
+                  : sc >= 80 ? ['大盘一般，有一项在拖后腿', '#a16207']
+                  : sc >= 70 ? ['大盘偏差，建议安排处理', '#b45309']
+                  : ['大盘问题较大，建议尽快介入', '#b42318'];
+      var lv = sevOfScore(sc);
+      var share = DT > 0 ? Math.round(cd[mx]/DT*100) : 0;
+      var body = cd[mx] <= 0.05
+        ? '四项指标均无明显扣分'
+        : '短板是 <b>'+MET_LAB4[mx]+'</b>（扣 '+fmt(cd[mx],1)+' 分，占全部扣分的 '+share+'%）';
+      vw.innerHTML =
+        '<div class="qrow sev'+lv+'" style="border:1px solid '+
+          (lv>=2?'#fecaca':(lv===1?'#fde68a':'#bbf7d0'))+';border-radius:12px;background:'+
+          (lv>=2?'#fff5f5':(lv===1?'#fffdf4':'#f6fef9'))+'">'+
+          '<span class="sco" style="color:'+verdict[1]+';min-width:auto;font-size:13px">'+verdict[0]+'</span>'+
+          '<span class="who" style="margin-left:8px">'+body+'</span>'+
+        '</div>'+
+        '<div class="qnav" style="margin-top:10px">'+chips+'</div>'+
+        '<div class="muted" style="font-size:11.5px">'+
+        '口径与下方表格完全一致（'+SMODE_LAB[scoreMode]+'）· 团队扣分 = 各站扣分按单量占比加权求和</div>';
+    }
+    /* ── ② 站点：最差的几个，直接点名 ── */
+    var sw = $('#ch2Sum');
+    if(sw){
+      var ctxS2 = scoreCtx(sel, dts, 'station');
+      var st2 = byStation(sel, dts).filter(function(x){ return x.t > 0 });
+      if(!st2.length){
+        sw.innerHTML = '<div class="qempty">当前范围没有站点数据</div>';
+      } else {
+        st2.forEach(function(x){ x._sc = scoreOf(x, ctxS2); x._w = worstOf(x, ctxS2) });
+        st2.sort(function(a, b){ return a._sc - b._sc });          // 分低在前
+        var nBad = st2.filter(function(x){ return x._sc < 90 }).length;
+        sw.innerHTML = qlist(st2.slice(0, Math.min(5, st2.length)), {
+          what: '站点', click: 'st', name: function(x){ return stShort(x.st) },
+          sub: function(x){ return x.t + ' 单' },
+          head: '共 <b>'+st2.length+'</b> 个站点，其中 <b style="color:'+
+                (nBad?'#b42318':'#047857')+'">'+nBad+'</b> 个综合分低于 90（90 分以下优先处理）。按差 → 好排列：',
+        });
+      }
+    }
+    /* ── ③ 骑手：最差的几个，直接点名 ── */
+    var rw = $('#ch3Sum');
+    if(rw){
+      var ctxR = scoreCtx(sel, dts);
+      var rd = byRider(sel, dts).filter(function(x){ return x.t >= scope.min });
+      if(!rd.length){
+        rw.innerHTML = '<div class="qempty">当前筛选（最少单量 '+scope.min+'）下没有骑手数据</div>';
+      } else {
+        rd.forEach(function(x){ x._sc = scoreOf(x, ctxR); x._w = worstOf(x, ctxR) });
+        rd.sort(function(a, b){ return a._sc - b._sc });
+        var nBad2 = rd.filter(function(x){ return x._sc < 90 }).length;
+        rw.innerHTML = qlist(rd.slice(0, Math.min(8, rd.length)), {
+          what: '骑手', click: 'ri', name: function(x){ return x.n },
+          sub: function(x){ return stShort(x.st) },
+          head: '共 <b>'+rd.length+'</b> 名骑手（最少单量 '+scope.min+'），其中 <b style="color:'+
+                (nBad2?'#b42318':'#047857')+'">'+nBad2+'</b> 名综合分低于 90。按差 → 好排列，点行看逐日明细：',
+        });
+      }
+    }
+  }
+  /* 站点名去掉开头的城市前缀，窄屏才放得下 */
+  function stShort(st){ return String(st || '').replace(/^福州/, '') }
+  /* 问题清单 / 导航条的点击（用委托，内容每次重渲染） */
+  (function bindSummaryClicks(){
+    var nav = $('#dimNav');
+    if(nav){
+      nav.addEventListener('click', function(e){
+        var b = e.target;
+        while(b && b !== nav && b.tagName !== 'BUTTON') b = b.parentNode;
+        if(!b || b === nav) return;
+        var el = document.getElementById(b.getAttribute('data-go'));
+        if(el) window.scrollTo({ top: el.getBoundingClientRect().top + window.pageYOffset - 62, behavior: 'smooth' });
+      });
+    }
+    var box = document.querySelector('.wrap');
+    if(box) box.addEventListener('click', function(e){
+      var r = e.target;
+      while(r && r !== box && !(r.className && String(r.className).indexOf('qrow') >= 0)) r = r.parentNode;
+      if(!r || r === box) return;
+      var ri = r.getAttribute('data-ri'), st = r.getAttribute('data-st');
+      if(ri !== null && ri !== undefined) openRider(+ri);
+      else if(st) openStation(st);
+    });
+  })();
+  /* 滚动时高亮当前章节（告诉用户「现在在看哪一块」） */
+  (function bindScrollSpy(){
+    var nav = $('#dimNav'); if(!nav) return;
+    var btns = [].slice.call(nav.querySelectorAll('button'));
+    function upd(){
+      var y = window.pageYOffset + 130, cur = 'ch1';
+      ['ch1','ch2','ch3'].forEach(function(id){
+        var el = document.getElementById(id);
+        if(el && el.getBoundingClientRect().top + window.pageYOffset <= y) cur = id;
+      });
+      btns.forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-go') === cur) });
+    }
+    window.addEventListener('scroll', upd, { passive: true });
+    window.__navUpd__ = upd;      // ★ 初值等数据渲染完再算（脚本解析时各章位置还没定，会误判成最后一章）
+  })();
+
   function renderAll(){
     if(!D) return;
     renderFilterBar();
@@ -4266,6 +4502,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var dts = dayList();
     renderImpactTeam(dts);
     renderImpactStation(dts);
+    renderSummaries();        // ★ 每章顶部的问题速览（依赖于上面的渲染，放最后）
+    if(window.__navUpd__) window.__navUpd__();
     $('#range').textContent = '数据范围 '+D.dates[0]+' ~ '+D.last+' · 共 '+D.dates.length+' 天 · '+
       D.riders.length+' 名骑手 · 站点 '+byStation(sel,dts).length+' 个'+
       (D.meta.src ? ' · 来源 '+D.meta.src : '');
