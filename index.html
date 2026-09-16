@@ -25,15 +25,17 @@ header.hero .navback{display:inline-block;margin-bottom:10px;font-size:12px;colo
 header.hero .navback:hover{opacity:1;background:rgba(255,255,255,.26)}
 header.hero .range{margin-top:6px;font-size:12.5px;opacity:.9}
 /* D1 用量（现在在「数据源」卡片里，浅色底 → 用浅色配色） */
-.quota{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
-.quota .q{display:inline-flex;align-items:baseline;gap:5px;background:#f6f8fb;border:1px solid #eef1f6;
-  border-radius:7px;padding:2px 8px;font-size:11px;line-height:1.5;white-space:nowrap;color:#475569}
-.quota .q .ql{color:#94a3b8}
-.quota .q b{font-weight:700;color:#334155}
-.quota .q.ok b{color:#047857}
-.quota .q.warn b{color:#b45309}
-.quota .q.bad b{color:#b42318}
-.quota .qhint{font-size:11px;color:#94a3b8;align-self:center}
+/* D1 用量（在页首 hero 的深色底上，紧凑一行） */
+.quota{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.quota .q{display:inline-flex;align-items:baseline;gap:5px;background:rgba(255,255,255,.14);
+  border-radius:7px;padding:2px 8px;font-size:10.5px;line-height:1.5;white-space:nowrap}
+.quota .q .ql{opacity:.8}
+.quota .q b{font-weight:700}
+.quota .q.ok b{color:#a7f3d0}
+.quota .q.warn b{color:#fde68a}
+.quota .q.bad b{color:#fecaca}
+.quota .qhint{font-size:10.5px;opacity:.75;align-self:center}
+.quota-lock{font-size:10.5px;opacity:.72;margin-top:7px}
 header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,255,.18);
   border:1px solid rgba(255,255,255,.35);padding:4px 10px;border-radius:20px;font-size:12px}
 .sec-title{display:flex;align-items:baseline;gap:8px;margin:26px 4px 12px;font-size:15px;font-weight:700;
@@ -431,8 +433,7 @@ header.hero h1{font-size:18px;letter-spacing:.3px}
 header.hero .navback{margin-bottom:8px;padding:3px 9px;font-size:11.5px}
 header.hero .range{font-size:12px;margin-top:5px}
 header.hero .badge{margin-top:9px;padding:3px 9px;font-size:11.5px}
-header.hero .quota{margin-top:7px;gap:5px}
-header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px}
+header.hero .quota{margin-top:8px;gap:5px}
 
 /* 卡片内边距统一收一档（KPI 卡有自己的覆盖，不受影响） */
 .card{padding:14px}
@@ -461,6 +462,10 @@ header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px
     <h1>骑手超时绩效看板</h1>
     <div class="range" id="range"></div>
     <div class="badge" id="heroBadge"></div>
+    <!-- D1 用量：★ 放在页首（用户反映移进卡片后找不到）。未解锁时显示一行提示而不是完全空白，
+         这样用户知道「它去哪了」而不是以为功能没了。数字仍然只在解锁后由服务端下发。 -->
+    <div class="quota" id="heroQuota" hidden></div>
+    <div class="quota-lock cloudonly" id="heroQuotaLock" hidden>🔒 解锁云同步后可查看 D1 用量</div>
   </header>
 
   <div class="sec-title"><span class="dot"></span>数据源 <small>上传绩效明细 xlsx 自动刷新 · 全程本机解析<span class="cloudonly">；解锁云同步后会上传到你自己账号</span></small></div>
@@ -478,9 +483,6 @@ header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px
       </div>
     </details>
     <div id="upStatus" class="upstatus" style="margin-top:9px"></div>
-    <!-- D1 用量（原在 hero 里）：属于「系统信息」而非「运营每天要看的答案」，
-         移到数据源卡片里 —— 首屏腾出来给真正的数据。JS 按 id 取，位置无所谓。 -->
-    <div class="quota" id="heroQuota" hidden></div>
     <!-- ★ 口径告警常驻区：解析期发现的口径问题长期显示，不会被状态栏刷新覆盖（如缺「运单状态」列） -->
     <div id="warnBox" style="display:none"></div>
   </div>
@@ -564,7 +566,6 @@ header.hero .quota .q{padding:2px 7px;font-size:10.5px;gap:4px;border-radius:7px
     <span class="cnum">1</span>
     <span class="ctxt"><b>整商</b><small>大盘行不行 · 四项考核指标 · 问题集中在哪</small></span>
   </div>
-  <div class="card" id="ch1Sum" style="margin-top:8px"></div>
 
   <section class="mod" data-name="最新数据">
   <div class="sec-title"><span class="dot"></span>最新数据 <small id="lastTag"></small></div>
@@ -3212,7 +3213,15 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   }
   function syncQuota(force){
     var box = $('#heroQuota'); if(!box) return;
-    if(!unlockedNow()){ box.hidden = true; box.innerHTML = ''; quotaAt = 0; return }
+    var lock = $('#heroQuotaLock');
+    /* ★ 未解锁时不显示数字（服务端也不会下发），但要**说明去哪里看** ——
+       之前是完全空白，用户以为「D1 额度不见了」（2026-09-16 反馈）。 */
+    if(!unlockedNow()){
+      box.hidden = true; box.innerHTML = ''; quotaAt = 0;
+      if(lock) lock.hidden = false;
+      return;
+    }
+    if(lock) lock.hidden = true;
     var now = Date.now();
     if(!force && now - quotaAt < 60000) return;      // 60 秒内不重复查询（省 D1 读配额）
     if(quotaBusy) return;
