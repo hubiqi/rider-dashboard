@@ -1399,6 +1399,16 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         if(s.idx.comp<0 && s.idx.overDur<0 && s.idx.overSec<0)
           miss.push('复合超时时长（秒） 或 超时秒数（用于分层计费）');
         if(miss.length) throw new Error('缺少必需列：'+miss.join('、'));
+        /* ★★ 这份文件「能否解析出运单明细」：要有运单号列，且至少有列能判定异常。
+           否则**不能声明这些天已覆盖** —— 否则会用空数组把云端已有的运单号明细清掉。
+           （正文的列名因平台/报表类型而异，这里按实际存在的列判断，不写死报表类型） */
+        /* ★★ 必须挂在解析状态 s 上：handleRow 是**逐行调用**的，
+           用局部 var 的话，处理表头那一次设的值在下一行就没了（值为 undefined）。 */
+        s.anomCapable = s.idx.oid >= 0 && (
+          s.idx.status >= 0 || s.idx.toudou >= 0 || s.idx.early >= 0 ||
+          s.idx.fakeCan >= 0 || s.idx.fakeCan2 >= 0 || s.idx.fakeGrab >= 0 ||
+          s.idx.fakeGrab2 >= 0 || s.idx.fakeGrab3 >= 0 ||
+          s.idx.cmpl >= 0 || s.idx.bad >= 0 || s.idx.claim >= 0);
         if(s.idx.status<0 && s.idx.toudou<0){
           /* ★★ 这条警告以前只调 setStatus，随后会被「✅ 已载入…」覆盖 —— 用户永远看不到，
              而它恰恰是最要紧的口径告警（缺这一列 = 取消/未送达单会混进单量与四指标）。
@@ -1526,8 +1536,15 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
          ⚠️ 曾经误写成 dstr（那是循环结束后才定义的日期数组），
             于是键变成 "undefined"，上传的 anomDays = ["undefined"] →
             服务端按日期匹配全不命中 → **明细一条都写不进去**（用户反馈的「上传更新不了数据」）。 */
-      if(s.anomDaysSet && d) s.anomDaysSet[d] = 1;
-      if(s.anomN < ANOM_MAX){
+      /* ★★ 只有「这份文件确实能解析出运单明细」时才声明这一天已覆盖 ——
+         否则会上传一个空数组，把云端**已有的运单号明细清掉**（用户 2026-09-16 的疑问）。
+         判断依据：必须有运单号列（不然明细没法看），且至少有列能判定异常
+         （运单状态 / 是否妥投单 / 各类违规标记）。缺任一 → 不声明 → 服务端保持原值。 */
+      if(s.anomDaysSet && d && s.anomCapable) s.anomDaysSet[d] = 1;
+      /* ★ 不具备明细能力的文件（没有运单号列等）**连记录都不产生** ——
+         否则 anomDaysOf 的「从记录兜底推导天数」会把这些天又推出来，
+         等于绕过了上面的声明守卫，照样把云端已有明细清掉。 */
+      if(s.anomCapable && s.anomN < ANOM_MAX){
         var codes = '';
         if(kept){
           if(isTo){ codes += 'o'; if(hi) codes += 'h' }
