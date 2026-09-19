@@ -441,6 +441,67 @@ header.hero .quota{margin-top:8px;gap:5px}
 
 /* KPI 大数字：略收字距，读起来更稳 */
 .kpi .val{letter-spacing:-.7px}
+/* ══════════════════════════════════════════════════════════════════════
+   运营视角排版（第三轮）：**更少的东西 + 更轻的重量**
+   思路：看板首屏只放「今天行不行、先找谁」；系统/设置类内容全部收起；
+        折叠条不再做成一道道横杠，减少视觉噪点。
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ① 系统状态行：常显但极轻（载入失败时会变红，仍然看得见） */
+.sysline{margin-top:10px;padding:8px 11px;background:#fafbfd;border:1px solid #f0f2f6;border-radius:10px}
+.sysline .upstatus{font-size:10.5px;line-height:1.5;color:#8a94a6;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.sysline #warnBox .note{margin-top:6px}
+
+/* ② 设置抽屉（数据源 + 云同步）：与章节同级但更淡，不抢注意力 */
+#setupFold>summary{color:#5b6675}
+#setupFold .fold.sec{margin:14px 4px 0}
+
+/* ③ 「更多分析」分组：把多条折叠横杠收成一条 —— 这是减少"杂乱感"最关键的一步 */
+details.morefold>summary{display:flex;align-items:center;gap:8px;margin:12px 0 2px;padding:9px 12px;
+  border-radius:10px;background:#f8fafc;cursor:pointer;user-select:none;list-style:none;
+  font-size:12.5px;font-weight:600;color:#64748b;line-height:1.4}
+details.morefold>summary::-webkit-details-marker{display:none}
+details.morefold>summary::before{content:'▸';flex:0 0 auto;font-size:10px;color:#9aa4b2}
+details.morefold[open]>summary::before{content:'▾'}
+details.morefold>summary:hover{background:#f1f5fb;color:#2563eb}
+details.morefold>summary .fsub{font-weight:400;color:#9aa4b2;font-size:11px;flex:1 1 0;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 组内模块只留文字标题，不再重复画底色（避免"横杠叠横杠"） */
+details.morefold details.mod>summary.sec-title{background:transparent;border:0;padding:7px 12px;
+  margin:2px 0;font-size:13.5px}
+details.morefold details.mod>summary.sec-title:hover{background:#f4f7fd}
+details.morefold{padding-left:2px}
+
+/* ④ 单独的折叠条也减重：去掉边框，只留很淡的底色 */
+details.mod>summary.sec-title{border:0;background:#f8fafc;padding:8px 11px}
+
+/* ⑤ 章节横幅再紧凑一点，把视觉重心让给数据 */
+.chapter{margin:26px 0 4px;padding:10px 13px}
+.chapter .cnum{width:22px;height:22px;font-size:12px;border-radius:8px}
+.chapter .ctxt b{font-size:14.5px}
+.chapter .ctxt small{font-size:11px}
+
+/* ⑥ 顶部信息密度再收一档 */
+header.hero{padding:16px 16px}
+header.hero .quota .q{font-size:10px;padding:2px 6px;gap:4px}
+/* ⑦ 章节横幅：原来是浅蓝渐变卡 + 阴影，和顶部导航条信息重复又偏重 —— 改成轻量分隔条 */
+.chapter{margin:28px 0 4px;padding:8px 12px;border-radius:10px;
+  background:#f7f9fc;border:1px solid #eef2f8;box-shadow:none}
+.chapter .cnum{width:22px;height:22px;border-radius:7px;font-size:12px;box-shadow:none}
+.chapter .ctxt b{font-size:14.5px;letter-spacing:.3px}
+.chapter .ctxt small{font-size:11px;color:#8a94a6}
+
+/* ⑧ 筛选控件：缩小到「控制条」的份量，不再占掉半屏 */
+button.tag{padding:4px 11px;font-size:11.5px}
+.taglab{font-size:11.5px;min-width:72px}
+.tagrow{gap:6px;margin-bottom:8px}
+.tagsum{font-size:11px;padding-top:8px}
+#filterBar{padding:11px 13px}
+
+/* ⑨ 系统状态行再收一行（错误信息本来就是短句，不会被截断） */
+.sysline{padding:7px 10px}
+.sysline .upstatus{-webkit-line-clamp:2}
 </style>
 </head>
 <body class="offline">
@@ -468,29 +529,32 @@ header.hero .quota{margin-top:8px;gap:5px}
     <div class="quota-lock cloudonly" id="heroQuotaLock" hidden>🔒 解锁云同步后可查看 D1 用量</div>
   </header>
 
-  <div class="sec-title"><span class="dot"></span>数据源 <small>上传绩效明细 xlsx 自动刷新 · 全程本机解析<span class="cloudonly">；解锁云同步后会上传到你自己账号</span></small></div>
-  <div class="card">
-    <!-- ★ 操作按钮收进折叠：载入/导出/清空是低频动作，天天要看的「状态」保持在折叠条上 -->
-    <details class="fold" style="margin:0">
-      <summary>载入 / 导出 / 清空 <span class="fsub" id="srcHint">点开操作</span></summary>
-      <div class="fbody" style="padding:2px 0 4px">
-        <div class="uprow">
-          <input type="file" id="fileInput" accept=".xlsx,.xls,.json" style="display:none">
-          <button class="btn" id="upBtn">⬆ 载入数据</button>
-          <button class="btn ghost" id="expDataBtn" title="把本机数据导出为 .json，便于换设备导入">⬇ 导出数据</button>
-          <button class="btn ghost" id="clrBtn" title="清除本机保存的数据">🗑 清空</button>
-        </div>
-      </div>
-    </details>
-    <div id="upStatus" class="upstatus" style="margin-top:9px"></div>
+  <!-- 系统状态（常显）：载入结果与口径告警 —— 出错时必须看得见，所以不藏进抽屉 -->
+  <div class="sysline">
+    <div id="upStatus" class="upstatus"></div>
     <!-- ★ 口径告警常驻区：解析期发现的口径问题长期显示，不会被状态栏刷新覆盖（如缺「运单状态」列） -->
     <div id="warnBox" style="display:none"></div>
   </div>
 
-  <!-- ══════════════ 云同步（Cloudflare D1 长期存储，增量去重） ══════════════
-       ★ 默认折叠收起（用户要求）：只有一个横条占位，点开才展开整块。
-       ★ 离线单文件版会在 <body> 上打 .offline，整块自动隐藏（见下方 CSS）。 -->
-  <details class="fold sec cloudonly" id="cloudFold">
+  <!-- ⚙️ 数据与筛选（默认收起）：上传/导出/清空 + 云同步 —— 都是「设置类」低频操作，
+       运营每天要看的是数据，所以整块收起来，首屏腾给结论与明细。
+       ★ 注意：真正的「筛选标签」在下方 #dashBody 里（没有数据时要整块隐藏），不能挪到这里。 -->
+  <details class="fold sec" id="setupFold">
+    <summary><span class="dot"></span><span class="ftitle">数据与筛选</span><span class="fsub">上传报表 · 云同步 · 筛选条件在数据区顶部</span></summary>
+    <div class="card">
+      <details class="fold" style="margin:0">
+        <summary>载入 / 导出 / 清空 <span class="fsub">支持 xlsx / json</span></summary>
+        <div class="fbody" style="padding:2px 0 4px">
+          <div class="uprow">
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.json" style="display:none">
+            <button class="btn" id="upBtn">⬆ 载入数据</button>
+            <button class="btn ghost" id="expDataBtn" title="把本机数据导出为 .json，便于换设备导入">⬇ 导出数据</button>
+            <button class="btn ghost" id="clrBtn" title="清除本机保存的数据">🗑 清空</button>
+          </div>
+        </div>
+      </details>
+    </div>
+<details class="fold sec cloudonly" id="cloudFold">
   <summary><span class="dot"></span><span class="ftitle">云同步</span><span class="fsub" id="cloudSub">数据存到 Cloudflare，以后只需上传新增的日期，自动去重增量合并</span><span class="fstate" id="cloudState">点开输入访问口令</span></summary>
   <div class="card">
     <!-- 未解锁：提交一次密钥（提交后立刻清空输入框；密钥不会存进浏览器） -->
@@ -534,6 +598,7 @@ header.hero .quota{margin-top:8px;gap:5px}
       </div></div>
     </details>
   </div>
+  </details>
   </details>
 
   <div id="emptyState" style="display:none">
@@ -582,6 +647,8 @@ header.hero .quota{margin-top:8px;gap:5px}
   </details>
   </section>
 
+  <details class="fold sec morefold">
+  <summary><span class="ftitle">更多分析</span><span class="fsub">全周期概览 · 质量四指标 · 日期趋势 · 卡餐二呼影响 · 团队综合分 · 剔除明细</span></summary>
   <details class="mod collapsible" data-name="全周期概览">
   <summary class="sec-title"><span class="dot"></span>全周期概览</summary>
   <div class="grid kpi" id="kpiAll"></div>
@@ -670,12 +737,15 @@ header.hero .quota{margin-top:8px;gap:5px}
     </details>
   </div>
   </details>
+  </details>
   <!-- ══════════════════════ 二、站点 ══════════════════════ -->
   <div class="chapter" id="ch2">
     <span class="cnum">2</span>
     <span class="ctxt"><b>站点</b><small>哪个站拖后腿 · 差在哪一项</small></span>
   </div>
 
+  <details class="fold sec morefold">
+  <summary><span class="ftitle">更多分析</span><span class="fsub">站点卡餐二呼影响 · 站点维度</span></summary>
   <details class="mod collapsible" data-name="站点卡餐二呼影响">
   <summary class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small>各站超时里有多少是商家出餐慢（卡餐）造成的</small></summary>
   <div class="card">
@@ -686,6 +756,7 @@ header.hero .quota{margin-top:8px;gap:5px}
 <details class="mod collapsible" data-name="站点维度">
   <summary class="sec-title"><span class="dot"></span>站点维度 <small>全周期对比 + 最新表现 · 点卡片看整周期明细</small></summary>
   <div class="grid" id="stationGrid" style="grid-template-columns:repeat(2,1fr)"></div>
+  </details>
   </details>
 
   <section class="mod" data-name="站点综合分排行">
