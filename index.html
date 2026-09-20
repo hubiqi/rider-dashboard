@@ -502,6 +502,27 @@ button.tag{padding:4px 11px;font-size:11.5px}
 /* ⑨ 系统状态行再收一行（错误信息本来就是短句，不会被截断） */
 .sysline{padding:7px 10px}
 .sysline .upstatus{-webkit-line-clamp:2}
+/* ── 数据范围控件（页首主控件）─────────────────────────────────────
+   与「设置抽屉」区分开：范围是运营每天都要动的主控件，常显。
+   桌面/手机都收在一行内，不换行（换行会让 hero 高度抖动）。 */
+.rangebar{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.rangebar .rseg{background:rgba(255,255,255,.22);padding:3px;border-radius:10px}
+.rangebar .rseg button{color:rgba(255,255,255,.85)}
+.rangebar .rseg button.on{background:#fff;color:var(--brand);box-shadow:0 1px 3px rgba(16,24,40,.18)}
+.rangebar .rctl{display:inline-flex;align-items:center;gap:5px}
+/* ★★ 必须显式处理 [hidden]：上面这条 display:inline-flex 的优先级高于 UA 的
+   [hidden]{display:none}，会让 hidden 属性完全失效（元素照样显示，只是空着）。
+   这正是「属性检查通过、肉眼却看见空控件」的假绿陷阱。 */
+.rangebar .rctl[hidden]{display:none}
+.rangebar .rtilde{color:rgba(255,255,255,.75);font-size:12px}
+.rangebar .rsel{background:rgba(255,255,255,.94);border:0;border-radius:8px;padding:4px 6px;
+  font-size:11.5px;color:#1f2a37;font-weight:600;max-width:120px;cursor:pointer}
+/* ★ 受控宽度：手机上三个 select 不挤成一条 —— 起止各占一半 */
+.rangebar .rctl#rctlCustom .rsel{max-width:104px}
+.rangebar .rbtn{border:0;background:rgba(255,255,255,.22);color:#fff;border-radius:8px;
+  width:24px;height:26px;font-size:14px;line-height:1;cursor:pointer;padding:0}
+.rangebar .rbtn:hover{background:rgba(255,255,255,.34)}
+.rangebar .rbtn[disabled]{opacity:.35;cursor:default}
 </style>
 </head>
 <body class="offline">
@@ -521,6 +542,27 @@ button.tag{padding:4px 11px;font-size:11.5px}
     })();
     </script>
     <h1>骑手超时绩效看板</h1>
+
+    <!-- ★ 数据范围控件（全局）：作用于整商 / 站点 / 骑手的所有模块。
+         默认「全周期」；可直接切「当日」按天翻，或拉「自定义」起止区间。
+         放在页首而不是设置抽屉里 —— 它是**主数据控件**，不是低频设置。 -->
+    <div class="rangebar">
+      <div class="seg rseg" id="rangeSeg">
+        <button data-v="all" class="on">全周期</button>
+        <button data-v="day">当日</button>
+        <button data-v="custom">自定义</button>
+      </div>
+      <span class="rctl" id="rctlDay" hidden>
+        <button class="rbtn" id="dayPrev" title="前一天">‹</button>
+        <select id="rDaySel" class="rsel"></select>
+        <button class="rbtn" id="dayNext" title="后一天">›</button>
+      </span>
+      <span class="rctl" id="rctlCustom" hidden>
+        <select id="rFromSel" class="rsel"></select>
+        <span class="rtilde">~</span>
+        <select id="rToSel" class="rsel"></select>
+      </span>
+    </div>
     <div class="range" id="range"></div>
     <div class="badge" id="heroBadge"></div>
     <!-- D1 用量：★ 放在页首（用户反映移进卡片后找不到）。未解锁时显示一行提示而不是完全空白，
@@ -649,9 +691,9 @@ button.tag{padding:4px 11px;font-size:11.5px}
   </section>
 
   <details class="fold sec morefold">
-  <summary><span class="ftitle">更多分析</span><span class="fsub">全周期概览 · 质量四指标 · 日期趋势 · 卡餐二呼影响 · 团队综合分 · 剔除明细</span></summary>
+  <summary><span class="ftitle">更多分析</span><span class="fsub" id="more1Sub">全周期概览 · 质量四指标 · 日期趋势 · 卡餐二呼影响 · 团队综合分 · 剔除明细</span></summary>
   <details class="mod collapsible" data-name="全周期概览">
-  <summary class="sec-title"><span class="dot"></span>全周期概览</summary>
+  <summary class="sec-title"><span class="dot"></span><span id="ovTitle">全周期概览</span></summary>
   <div class="grid kpi" id="kpiAll"></div>
   <details class="fold"><summary>指标说明 · 三行怎么读 <span class="fsub">二呼/卡餐两行是对大盘的影响值</span></summary>
   <div class="fbody"><div class="mixnote">
@@ -755,7 +797,7 @@ button.tag{padding:4px 11px;font-size:11.5px}
   </details>
 
 <details class="mod collapsible" data-name="站点维度">
-  <summary class="sec-title"><span class="dot"></span>站点维度 <small>全周期对比 + 最新表现 · 点卡片看整周期明细</small></summary>
+  <summary class="sec-title"><span class="dot"></span>站点维度 <small id="stDimSub">全周期对比 + 最新表现 · 点卡片看整周期明细</small></summary>
   <div class="grid" id="stationGrid" style="grid-template-columns:repeat(2,1fr)"></div>
   </details>
   </details>
@@ -857,7 +899,11 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
 
   /* ================= 状态 ================= */
   var sel = { f1:'all', f2:'all' };      // 标签筛选
-  var scope = { day:'__all__', st:'__all__', min:5, q:'', rank:10 };   // rank=超时率前 N%（0=全部）
+  /* ★ 数据范围（全局，作用于整商 / 站点 / 骑手的所有模块）
+     mode:'all' 全周期（默认）｜'day' 当日 ｜'custom' 自定义起止
+     day / from / to 都是 'YYYY-MM-DD' 字符串 —— 字典序等价于日期序，可直接比大小。 */
+  var scope = { mode:'all', day:null, from:null, to:null,
+                st:'__all__', min:5, q:'', rank:10 };   // rank=超时率前 N%（0=全部）
   var sortKey = 'score', sortDir = 1;    // 默认：质量指标视图下按「综合评价分」升序（低分在前 = 最差在前）
   var metric = 'rate';
   var view = 'quality';                  // timeout=超时视图 · quality=质量指标视图（默认）
@@ -991,9 +1037,56 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     return { T:T, S:S, D:D, n:n, level: lv, amp: ampOf(lv, n) };
   }
 
-  function dayList(){                     // 当前日期范围（单日 → [di]，全周期 → all）
-    if(scope.day==='__all__'){ var a=[]; for(var i=0;i<D.grid.length;i++) a.push(i); return a; }
-    var di = D.dates.indexOf(scope.day); return di<0? [] : [di];
+  function dayList(){                     // 当前日期范围 → 天序号数组
+    if(scope.mode==='custom'){            // 自定义区间（端点含入；反向输入自动交换）
+      var f = scope.from, t = scope.to, a = [];
+      if(f && t && f > t){ var tmp = f; f = t; t = tmp; }
+      for(var i=0;i<D.dates.length;i++){
+        var d = D.dates[i];
+        if((!f || d >= f) && (!t || d <= t)) a.push(i);
+      }
+      return a.length ? a : [D.dates.length-1];   // 兜底：空区间（如全在数据范围外）退回最新一天
+    }
+    if(scope.mode==='day'){               // 当日
+      var di = D.dates.indexOf(scope.day);
+      return di < 0 ? [D.dates.length-1] : [di];
+    }
+    var all = []; for(var k=0;k<D.grid.length;k++) all.push(k); return all;   // 全周期
+  }
+  /* ── 日期的「人话」描述 ──────────────────────────────────────────────
+     ★ 不要再写死「昨日」：报表可能是前两天上传的，写死会误导。
+     今日 / 昨日 / 8月18日（跨年补年份）。 */
+  function dayLabel(dt){
+    if(!dt) return '';
+    var now = new Date(), p = function(n){ return (n<10?'0':'')+n };
+    var mk = function(x){ return x.getFullYear()+'-'+p(x.getMonth()+1)+'-'+p(x.getDate()) };
+    if(dt === mk(now)) return '今日';
+    if(dt === mk(new Date(now.getTime() - 86400000))) return '昨日';
+    var y = +dt.slice(0,4), m = +dt.slice(5,7), dd = +dt.slice(8,10);
+    return (y === now.getFullYear() ? '' : y+'年') + m + '月' + dd + '日';
+  }
+  /* 范围的中文短描述（用于模块标题、明细表头等） */
+  function scopeText(){
+    if(scope.mode==='day') return dayLabel(scope.day);
+    if(scope.mode==='custom'){
+      var f = (scope.from||D.dates[0]), t = (scope.to||D.last);
+      if(f > t){ var x = f; f = t; t = x; }
+      return f.slice(5) + ' ~ ' + t.slice(5);
+    }
+    return '全周期';
+  }
+  /* 范围的完整描述（带天数与边界） */
+  function scopeLong(){
+    var n = dayList().length;
+    if(scope.mode==='all') return '全周期 '+D.dates[0]+' ~ '+D.last+'（'+n+' 天）';
+    if(scope.mode==='day') return dayLabel(scope.day)+' '+scope.day+'（1 天）';
+    var f = (scope.from||D.dates[0]), t = (scope.to||D.last);
+    if(f > t){ var x = f; f = t; t = x; }
+    return f+' ~ '+t+'（'+n+' 天）';
+  }
+  /* 模块标题里的范围词：全周期 / 当日 / 自定义范围 */
+  function scopeWord(){
+    return scope.mode==='all' ? '全周期' : (scope.mode==='day' ? '当日' : '自定义范围');
   }
   function sumVec(s, dts){                // 汇总向量（当前范围）
     var v = newVec();
@@ -1218,6 +1311,73 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   }
   function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
   function escA(s){ return esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
+
+  /* ================= 数据范围控件（页首，全局） =================
+     ★ 三个模式共用一套 state（scope.mode/day/from/to），
+       与骑手模块里的 #daySel 共用 —— 两边都只写 state，由 renderRange() 统一回填，
+       避免「两个下拉各说各话」。 */
+  function rangeOpts(selVal){
+    return D.dates.slice().reverse().map(function(d){
+      return '<option value="'+d+'"'+(d===selVal?' selected':'')+'>'+d+(d===D.last?'（最新）':'')+'</option>';
+    }).join('');
+  }
+  function renderRange(){
+    /* 兜底：切到 day/custom 时若还没选值，用最新一天 / 全区间 */
+    if(scope.mode==='day' && !scope.day) scope.day = D.last;
+    if(scope.mode==='custom'){
+      if(!scope.from) scope.from = D.dates[0];
+      if(!scope.to)   scope.to   = D.last;
+    }
+    var seg = $('#rangeSeg');
+    if(seg){ [].forEach.call(seg.children, function(b){
+      b.className = (b.getAttribute('data-v') === scope.mode) ? 'on' : '';
+    }); }
+    if($('#rctlDay'))    $('#rctlDay').hidden    = scope.mode !== 'day';
+    if($('#rctlCustom')) $('#rctlCustom').hidden = scope.mode !== 'custom';
+    if(scope.mode === 'day'){
+      $('#rDaySel').innerHTML = rangeOpts(scope.day);
+      var di = D.dates.indexOf(scope.day);
+      /* 首/末天禁用翻页，避免点出空范围 */
+      $('#dayPrev').disabled = (di <= 0);
+      $('#dayNext').disabled = (di >= D.dates.length-1);
+    }
+    if(scope.mode === 'custom'){
+      $('#rFromSel').innerHTML = rangeOpts(scope.from);
+      $('#rToSel').innerHTML   = rangeOpts(scope.to);
+    }
+    /* 骑手模块里的快捷日期下拉也跟着走（含「自定义区间」提示项） */
+    var ds = $('#daySel');
+    if(ds){
+      var head = scope.mode==='custom'
+        ? '<option value="__custom__" selected>自定义 '+scopeText()+'</option>'
+        : '<option value="__all__"'+(scope.mode==='all'?' selected':'')+'>全周期（'+D.dates[0].slice(5)+'~'+D.last.slice(5)+'）</option>';
+      ds.innerHTML = head + rangeOpts(scope.mode==='day' ? scope.day : null);
+      if(scope.mode==='day') ds.value = scope.day;
+    }
+  }
+  /* 范围控件的交互 */
+  function bindRange(){
+    var seg = $('#rangeSeg');
+    if(seg) seg.addEventListener('click', function(e){
+      var b = e.target.closest('button'); if(!b) return;
+      scope.mode = b.getAttribute('data-v');
+      renderAll();
+    });
+    if($('#rDaySel')) $('#rDaySel').addEventListener('change', function(){
+      scope.day = this.value; renderAll();
+    });
+    var stepBtn = function(id, step){
+      var el = $(id); if(!el) return;
+      el.addEventListener('click', function(){
+        var di = D.dates.indexOf(scope.day) + step;
+        if(di < 0 || di >= D.dates.length) return;
+        scope.day = D.dates[di]; renderAll();
+      });
+    };
+    stepBtn('#dayPrev', -1); stepBtn('#dayNext', 1);
+    if($('#rFromSel')) $('#rFromSel').addEventListener('change', function(){ scope.from = this.value; renderAll() });
+    if($('#rToSel'))   $('#rToSel').addEventListener('change',   function(){ scope.to   = this.value; renderAll() });
+  }
 
   /* ================= 筛选标签 ================= */
   function renderFilterBar(){
@@ -1724,16 +1884,21 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var lastDi = D.dates.length-1;
     var L = aggScope(sel, [lastDi]), P = aggScope(sel, [lastDi-1]);
 
-    $('#heroBadge').textContent = '昨日超时率 '+pct(L.r)+' ｜ 单均复合 '+fmt(L.c,1)+' 秒';
-    $('#lastTag').textContent = '（'+D.last+'）· '+selText();
+    /* ★ 日期前缀一律用 dayLabel() 现算：报表可能是今天/昨天/更早上传的，
+       写死「昨日」会误导（用户 2026-09-20 提出）。 */
+    var dL = dayLabel(D.last);
+    $('#heroBadge').textContent = dL+'超时率 '+pct(L.r)+' ｜ 单均复合 '+fmt(L.c,1)+' 秒';
+    /* 标签：今日/昨日时压缩成「今日 09-20」，更早的日期给完整日期（可能跨年，年份不能省） */
+    $('#lastTag').textContent = '（' +
+      ((dL==='今日'||dL==='昨日') ? dL+' '+D.last.slice(5) : D.last) + '）· '+selText();
 
     /* 单类型拆分（二呼 / 卡餐 / 正常）：每张卡下方三行，口径同「卡餐/二呼单影响」分析 */
     var ML = mixMap([lastDi]);
     $('#kpiLast').innerHTML =
-      card('昨日单量', L.t, '单', '较前一日 '+dPill(delta(L.t,P.t),'neutral'), mixRows(ML,'t')) +
-      card('昨日超时率', pct(L.r), '', '较前一日 '+dPill(delta(L.r,P.r),'down-good'), mixRows(ML,'r')) +
-      card('昨日超时单', L.o, '单', '占单量 '+pct(L.t? L.o/L.t*100:0), mixRows(ML,'o')) +
-      card('昨日单均复合', fmt(L.c,1), '秒', '较前一日 '+dPill(delta(L.c,P.c),'down-good'), mixRows(ML,'c'));
+      card(dL+'单量', L.t, '单', '较前一日 '+dPill(delta(L.t,P.t),'neutral'), mixRows(ML,'t')) +
+      card(dL+'超时率', pct(L.r), '', '较前一日 '+dPill(delta(L.r,P.r),'down-good'), mixRows(ML,'r')) +
+      card(dL+'超时单', L.o, '单', '占单量 '+pct(L.t? L.o/L.t*100:0), mixRows(ML,'o')) +
+      card(dL+'单均复合', fmt(L.c,1), '秒', '较前一日 '+dPill(delta(L.c,P.c),'down-good'), mixRows(ML,'c'));
 
     var byD = dts.map(function(i){
       var o = { dt:D.dates[i], a:aggScope(sel,[i]) };
@@ -1745,11 +1910,17 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var mx = Math.max.apply(null, rs), mn = Math.min.apply(null, rs);
     var mxD = '', mnD = '';
     byD.forEach(function(x){ if(x.a.r===mx) mxD = x.dt; if(x.a.r===mn) mnD = x.dt });
+    /* ★ 卡片标签跟随范围：「累计 / 整体」只在全周期时成立 ——
+       选了单日还说「累计」会让人以为不止一天。 */
+    var all = scope.mode === 'all';
+    var pfx = all ? '' : (scope.mode === 'day' ? scopeText() : scopeText()+' ');
     $('#kpiAll').innerHTML =
-      card('累计单量', O.t, '单', '日均 '+Math.round(O.t/dts.length)+' 单', mixRows(MA,'t')) +
-      card('整体超时率', pct(O.r), '', '超时单 '+O.o+' 单', mixRows(MA,'r')) +
-      card('整体单均复合', fmt(O.c,1), '秒', '复合超时合计 '+Math.round(O.s)+' 秒', mixRows(MA,'c')) +
-      card('波动区间', fmt(mn,2)+'~'+fmt(mx,2), '%', '最低 '+mnD.slice(5)+' ｜ 最高 '+mxD.slice(5), mixRangeRows(byD));
+      card((all?'累计':'')+pfx+'单量', O.t, '单',
+        (dts.length>1 ? '日均 '+Math.round(O.t/dts.length)+' 单' : '单日合计'), mixRows(MA,'t')) +
+      card((all?'整体':'')+pfx+'超时率', pct(O.r), '', '超时单 '+O.o+' 单', mixRows(MA,'r')) +
+      card((all?'整体':'')+pfx+'单均复合', fmt(O.c,1), '秒', '复合超时合计 '+Math.round(O.s)+' 秒', mixRows(MA,'c')) +
+      card(dts.length>1 ? '波动区间' : '当日超时率', dts.length>1 ? fmt(mn,2)+'~'+fmt(mx,2) : fmt(mn,2), '%',
+        '最低 '+mnD.slice(5)+' ｜ 最高 '+mxD.slice(5), mixRangeRows(byD));
     return byD;
   }
 
@@ -2003,7 +2174,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         '<div class="val" style="color:'+M.color+'">'+metTxt(M, lv)+'</div>'+
         '<div class="met2">'+
           '<span class="m1" title="最新日期（'+D.last+'）">📅 '+(lastD?lastD.dt:'—')+'</span>'+
-          '<span class="m2" title="全周期聚合（'+nDay+' 天加权）">Σ 全周期（'+nDay+' 天）<b>'+metTxt(M, tv)+'</b></span>'+
+          '<span class="m2" title="'+scopeWord()+'聚合（'+nDay+' 天加权）">Σ '+scopeWord()+'（'+nDay+' 天）<b>'+metTxt(M, tv)+'</b></span>'+
         '</div>'+
         miniLine(days, M)+
         '<div class="foot">'+M.sub+' <b>'+Math.round(lv ? (lastD.a[M.subKey]||0) : 0)+
@@ -2413,8 +2584,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var x = null;
     byRider(sel, dts).forEach(function(y){ if(y.ri === ri) x = y });
     var who = (x ? x.n + '（' + x.st + '）' : '骑手 #' + ri);
-    var dlab = scope.day === '__all__'
-      ? D.dates[0] + ' ~ ' + D.last + '（' + dts.length + ' 天）' : scope.day;
+    var dlab = scopeLong();
     var sum = rows.reduce(function(a,b){ return a + b.hit }, 0);
     var h = '<div class="exp-head"><div><b>'+meta.t+' · 明细</b>'+
       '<div class="muted" style="font-size:11.5px;margin-top:3px">'+esc(who)+' · '+esc(dlab)+'</div>'+
@@ -2624,7 +2794,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       ? '排名筛选 <b>按当前排序「'+(sortLab[k]||k)+'」'+(dir>0?'升序':'降序')+'前 '+scope.rank+'%</b>（候选 '+pool.length+' 名 → 取前 '+cut+' 名'+
         (cut>cutWant ? '，与临界名次并列的一并纳入 +'+(cut-cutWant) : '')+'）'
       : '排名筛选 <b>不限</b>（候选 '+pool.length+' 名）';
-    $('#tblNote').innerHTML = '<b style="color:#1d4ed8">👆 点任意一行骑手可查看逐日明细</b> · 当前：<b>'+(scope.day==='__all__'?'全周期':scope.day)+'</b> · '+
+    $('#tblNote').innerHTML = '<b style="color:#1d4ed8">👆 点任意一行骑手可查看逐日明细</b> · 当前：<b>'+scopeText()+'</b> · '+
       '「'+(view==='quality'?'综合排名':'排名')+'」列 = <b>'+(view==='quality'?'当前展示范围内按综合分的名次（1 = 分最高）':'当前展示范围内按超时率的名次（1 = 超时率最高）')+'</b>（悬停某行可看全池名次）<br>'+
       '筛选：最少单量 ≥ '+scope.min+' · '+rankTxt+' · 实际展示 <b>'+list.length+'</b> 名 · '+
       '排序：'+(sortLab[k]||k)+(dir>0?' ↑ 升序':' ↓ 降序')+
@@ -2786,15 +2956,15 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         '<div class="mtitle" style="color:'+M.color+'">'+M.lab+'</div>'+
         '<div class="muted" style="font-size:12px;margin-top:4px;line-height:1.5">'+M.desc+'</div>'+
         '<div class="muted" style="font-size:11.5px;margin-top:4px">当前筛选：'+
-          (scope.day==='__all__' ? '全周期' : scope.day)+' · 最少单量 ≥ '+scope.min+
+          scopeText()+' · 最少单量 ≥ '+scope.min+
           ' · 共 <b>'+n+'</b> 天</div>'+
       '</div><button class="mclose" id="mclose">✕</button></div>'+
       '<div class="mgrid" style="margin-top:12px">'+
         mc('最新日期 '+(last?last.dt:'—'), metTxt(M, lv), M.color) +
         mc('较前一日', dTxt, dCol) +
-        mc('全周期（'+n+' 天）', metTxt(M, tv), M.color) +
+        mc(scopeWord()+'（'+n+' 天）', metTxt(M, tv), M.color) +
         mc(M.sub+'（最新）', Math.round(last? (last.a[M.subKey]||0):0)+(M.subUnit||'')) +
-        mc(M.sub+'（全周期）', Math.round(T[M.subKey]||0)+(M.subUnit||'')) +
+        mc(M.sub+'（'+scopeWord()+'）', Math.round(T[M.subKey]||0)+(M.subUnit||'')) +
         mc('区间最高 / 最低', (function(){
           if(!n) return '—';
           var vs = days.map(function(d){ return metVal(M, d.a) });
@@ -2821,7 +2991,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
             '<td class="num">'+Math.round(x.a[M.subKey]||0)+(M.subUnit||'')+'</td>'+
             '<td class="num" style="color:'+c2+'">'+(d2===null?'—':((d2>0?'▲ ':'▼ ')+Math.abs(d2).toFixed(1)+'%'))+'</td></tr>';
         }).join('')+
-        '<tr style="background:#f8fafc;font-weight:700"><td>全周期合计</td>'+
+        '<tr style="background:#f8fafc;font-weight:700"><td>'+scopeWord()+'合计</td>'+
           '<td class="num">'+T.t+'</td><td class="num">'+T.acc+'</td>'+
           '<td class="num" style="color:'+M.color+'">'+metTxt(M, tv)+'</td>'+
           '<td class="num">'+Math.round(T[M.subKey]||0)+(M.subUnit||'')+'</td><td class="num">—</td></tr>'+
@@ -3206,10 +3376,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       (D.meta.fmt ? ' · 口径 '+D.meta.fmt : '') + exTxt;
   }
   function buildControls(){
-    $('#daySel').innerHTML = '<option value="__all__">全周期（'+D.dates[0].slice(5)+'~'+D.last.slice(5)+'）</option>' +
-      D.dates.slice().reverse().map(function(d){
-        return '<option value="'+d+'"'+(d===scope.day?' selected':'')+'>'+d+(d===D.last?'（最新）':'')+'</option>';
-      }).join('');
+    /* #daySel 的选项由 renderRange() 生成（与页首控件保持同步） */
+    renderRange();
     $('#stSel').innerHTML = '<option value="__all__">全部站点</option>' +
       byStation({f1:'all',f2:'all'}, null).sort(function(a,b){ return a.st.localeCompare(b.st) })
         .map(function(s){ return '<option value="'+esc(s.st)+'">'+esc(s.st)+'</option>' }).join('');
@@ -3218,7 +3386,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   }
   document.addEventListener('change', function(e){
     var t = e.target;
-    if(t.id==='daySel'){ scope.day = t.value; renderAll(); }
+    /* 骑手模块里的快捷日期下拉 → 同样是改全局范围（与页首控件共用 state） */
+    if(t.id==='daySel'){
+      var v = t.value;
+      if(v === '__all__'){ scope.mode = 'all'; }
+      else if(v === '__custom__'){ /* 保持自定义，不改 state */ }
+      else { scope.mode = 'day'; scope.day = v; }
+      renderAll();
+    }
     else if(t.id==='stSel'){ scope.st = t.value; renderAll(); }
     else if(t.id==='minSel'){ scope.min = +t.value; renderTable(); }
     else if(t.id==='rankSel'){ scope.rank = +t.value; renderTable(); }
@@ -3862,7 +4037,8 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   function applyData(src){
     showDash();
     buildSortSeg();
-    scope.day = '__all__'; scope.st = '__all__'; scope.q = ''; scope.min = 5; scope.rank = 10;
+    scope.mode = 'all'; scope.day = null; scope.from = null; scope.to = null;
+    scope.st = '__all__'; scope.q = ''; scope.min = 5; scope.rank = 10;
     if($('#q')) $('#q').value = '';
     buildControls(); renderAll(); renderWarns();
   }
@@ -4700,11 +4876,21 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     renderImpactStation(dts);
     renderSummaries();        // ★ 每章顶部的问题速览（依赖于上面的渲染，放最后）
     if(window.__navUpd__) window.__navUpd__();
+    renderRange();
+    /* ★ 模块标题跟随当前范围：全周期时保持原名（导出探针按标题匹配，不能随意改），
+       切到当日/自定义时给准确的名字，避免「全周期概览」实际只有一天数据。 */
+    var ovName = scopeWord() === '全周期' ? '全周期概览' : scopeWord()+'概览';
+    if($('#ovTitle')) $('#ovTitle').textContent = ovName;
+    if($('#more1Sub')) $('#more1Sub').textContent =
+      ovName+' · 质量四指标 · 日期趋势 · 卡餐二呼影响 · 团队综合分 · 剔除明细';
+    if($('#stDimSub')) $('#stDimSub').textContent =
+      (scope.mode==='all' ? '全周期对比 + 最新表现' : scopeWord()+' '+scopeText()+' + 最新表现') + ' · 点卡片看明细';
     $('#range').textContent = '数据范围 '+D.dates[0]+' ~ '+D.last+' · 共 '+D.dates.length+' 天 · '+
       D.riders.length+' 名骑手 · 站点 '+byStation(sel,dts).length+' 个'+
       (D.meta.src ? ' · 来源 '+D.meta.src : '');
   }
   bindExcl();
+  bindRange();
   initExport();
   $('#method').innerHTML =
     '<b>指标口径</b>：① <b>超时单</b>=「超平台期望送达时长」≥ 8 分钟（480 秒）的运单；'+
