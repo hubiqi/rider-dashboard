@@ -18,7 +18,11 @@ body{margin:0;background:var(--bg);color:var(--ink);
 header.hero{background:linear-gradient(120deg,#1e3a8a 0%,#2563eb 45%,#7c3aed 100%);
   color:#fff;border-radius:18px;padding:22px 20px;position:relative;overflow:hidden}
 header.hero:after{content:"";position:absolute;right:-40px;top:-40px;width:180px;height:180px;
-  background:rgba(255,255,255,.12);border-radius:50%}
+  background:rgba(255,255,255,.12);border-radius:50%;
+  /* ★★ 纯装饰的右上角圆：必须让点击穿过去，否则会盖住页首右上角的「口径」开关 ——
+     只在「全周期」下暴露：当日/自定义会多一个日期选择器，把开关挤到圆外边去，
+     所以用户看到的是「只有全周期点不动加权按钮」（2026-09-22 定位） */
+  pointer-events:none}
 header.hero h1{margin:0;font-size:20px;letter-spacing:.5px}
 header.hero .navback{display:inline-block;margin-bottom:10px;font-size:12px;color:#fff;opacity:.85;
   text-decoration:none;background:rgba(255,255,255,.16);padding:4px 10px;border-radius:20px}
@@ -555,8 +559,10 @@ body.modalOn #wSeg{position:fixed;left:50%;bottom:12px;transform:translateX(-50%
   box-shadow:0 8px 24px rgba(2,6,23,.42)}
 body.modalOn #wSeg button{color:rgba(255,255,255,.88);padding:5px 14px;font-size:12px}
 body.modalOn #wSeg button.on{background:#fff;color:#2563eb}
-/* 口径开关：桌面端靠右（与数据范围控件分开），手机上跟在同一行尾 */
-.rangebar .wseg{margin-left:auto}
+/* 口径开关：桌面端靠右（与数据范围控件分开），手机上跟在同一行尾。
+   z-index 双保险：即使将来又加了什么装饰层，控件也不会被盖住点不到。 */
+.rangebar{position:relative;z-index:2}
+.rangebar .wseg{margin-left:auto;position:relative;z-index:2}
 .rangebar .wseg button{padding:4px 10px;font-size:11.5px}
 @media(max-width:520px){ .rangebar .wseg{margin-left:0} }
 </style>
