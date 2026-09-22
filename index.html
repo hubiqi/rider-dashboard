@@ -389,6 +389,11 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
   border:1px dashed var(--line);border-radius:8px;background:#fbfcfe;color:#475467;
   font-size:11.5px;font-weight:600;cursor:pointer;-webkit-user-select:none;user-select:none}
 .tchips .tw input{margin:0;accent-color:var(--brand)}
+/* 手机：chips 收紧一档，否则 11 个指标要占掉大半屏 */
+@media(max-width:520px){
+  .tchips{gap:5px;margin:6px 0 4px}
+  .tchips button,.tchips .tw{padding:3px 8px;font-size:11px;border-radius:7px}
+}
 .mlegend{flex-wrap:wrap;gap:10px}
 .mcell .kl em{font-style:normal;color:#98a2b3;font-size:10.5px}
 .mchips{display:flex;gap:6px;flex-wrap:wrap;font-size:11.5px;color:#475467}
