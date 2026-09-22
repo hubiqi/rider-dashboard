@@ -375,6 +375,21 @@ html:has(.modal.show),body:has(.modal.show){overflow:hidden}
 .mcell .kv{font-size:16px;font-weight:800;margin-top:2px}
 .mlegend{display:flex;gap:16px;font-size:11.5px;color:var(--sub);margin:6px 0 2px}
 .mlegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+/* 趋势指标选择 chips（骑手 / 站点弹窗）—— 单选/多选/全选 + 加权开关 */
+.tchips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 6px}
+.tchips button{border:1px solid var(--line);background:#fff;color:#475467;border-radius:8px;
+  padding:4px 9px;font-size:11.5px;font-weight:600;line-height:1.5;cursor:pointer;
+  -webkit-user-select:none;user-select:none}
+.tchips button>i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+.tchips button.on{border-color:#c7d2fe;background:#eef4ff;color:#1d4ed8;
+  box-shadow:inset 0 0 0 1px rgba(37,99,235,.18)}
+.tchips button:hover{border-color:#c7d2fe}
+.tchips button[data-k="__all"]{background:#f2f4f7;border-color:transparent}
+.tchips .tw{display:inline-flex;align-items:center;gap:5px;margin-left:2px;padding:4px 9px;
+  border:1px dashed var(--line);border-radius:8px;background:#fbfcfe;color:#475467;
+  font-size:11.5px;font-weight:600;cursor:pointer;-webkit-user-select:none;user-select:none}
+.tchips .tw input{margin:0;accent-color:var(--brand)}
+.mlegend{flex-wrap:wrap;gap:10px}
 .mcell .kl em{font-style:normal;color:#98a2b3;font-size:10.5px}
 .mchips{display:flex;gap:6px;flex-wrap:wrap;font-size:11.5px;color:#475467}
 .mchips span{background:#f8fafc;border:1px solid #eef1f6;border-radius:8px;padding:3px 7px}
@@ -2857,62 +2872,203 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   });
 
   /* ================= 骑手明细弹窗 ================= */
-  var C_RATE = '#1d4ed8';     // 超时率（左轴）蓝
-  var C_COMP = '#ea580c';     // 单均复合（右轴）橙
-  function lineChart(days, opts){
+  /* ================= 逐日走势折线（可勾选指标 · 骑手/站点弹窗共用） ================= */
+  /* ★ 为什么重做（v101）：原来固定画「超时率（左轴·实线）+ 单均复合（右轴·虚线）」两条线，
+     想看别的指标只能去翻下面的明细表。现在把「大指标」做成可勾选的曲线：
+     单选 / 多选 / 全选，并可切换「加权数据」口径。
+     ★ 轴位按「单位族」分配 —— 百分比 → 左轴，秒 → 右轴①，单 → 右轴②；
+       每族各自按 min~max 缩放，否则 100% 的妥投率与 3% 的超时率挤在同一条 0 基线上全是直线。
+     ★ 颜色之外再加一层可辨识度：实线 = % · 长虚线 = 秒 · 点线 = 单。 */
+  var C_RATE = '#1d4ed8';                 // 兼容旧引用（图例色）
+  var C_COMP = '#ea580c';
+  var FAM = {
+    pct:{ unit:'%',  dec:2, dash:'' },
+    sec:{ unit:'s',  dec:1, dash:'9 4' },
+    cnt:{ unit:'单', dec:0, dash:'2 3' }
+  };
+  /* 可选曲线：v = 原始口径 · wv/wlab = 加权口径（勾「加权数据」时改用）
+     加权系数取自平台公式：提前点送达×2 · 有效投诉/有效差评×5 · 索赔/虚假报备×1 */
+  var TSER = [
+    { k:'r',      lab:'超时率',     fam:'pct', color:'#2563eb', dec:2, v:function(d){ return d.r } },
+    { k:'missR',  lab:'非妥投率',   fam:'pct', color:'#dc2626', dec:2, v:function(d){ return d.missR } },
+    { k:'fullR',  lab:'完全妥投率', fam:'pct', color:'#059669', dec:2, v:function(d){ return d.fullR } },
+    { k:'t8R',    lab:'T8准时率',   fam:'pct', color:'#0891b2', dec:2, v:function(d){ return d.t8R } },
+    { k:'t8Late', lab:'T8超时率',   fam:'pct', color:'#be185d', dec:2, v:function(d){ return d.t8Late } },
+    { k:'satR',   lab:'不满意率',   fam:'pct', color:'#d97706', dec:2, v:function(d){ return d.satR } },
+    { k:'c',      lab:'单均复合',   fam:'sec', color:'#ea580c', dec:1, v:function(d){ return d.c } },
+    { k:'t',      lab:'单量',       fam:'cnt', color:'#0ea5e9', dec:0, v:function(d){ return d.t } },
+    { k:'o',      lab:'超时单',     fam:'cnt', color:'#f97316', dec:0,
+      tip:'原始 T8 超时单；勾「加权数据」= 加权超时单（含高笔非准时 / 虚假报备 / 虚假改派 / 提前点送达×2）',
+      wlab:'加权超时单', wv:function(d){ return d.t8Loss } },
+    { k:'missAdd', lab:'非妥投订单', fam:'cnt', color:'#c026d3', dec:0,
+      tip:'原始未完成事件数（提前点送达 / 虚假报备出餐慢 / 虚假改派各计 1）；勾「加权数据」= 平台「加权未完成单」（提前点送达×2）',
+      v:function(d){ return d.early + d.fakeCan + d.fakeGrab },
+      wlab:'加权未完成单', wv:function(d){ return d.missAdd } },
+    { k:'satW',   lab:'不满意单',   fam:'cnt', color:'#65a30d', dec:0,
+      tip:'原始条数（有效投诉 / 有效差评 / 有效索赔 / 虚假报备）；勾「加权数据」= 加权不满意单（投诉差评×5）',
+      v:function(d){ return d.cmpl + d.bad + d.claim + d.fakeCan },
+      wlab:'加权不满意单', wv:function(d){ return d.satW } }
+  ];
+  var SERBY = {}; TSER.forEach(function(x){ SERBY[x.k] = x });
+  var trendKeys = ['r', 'missAdd'];       // 默认：超时率 + 非妥投订单
+  var trendW = true;                      // 默认按平台加权口径
+  function trendSeries(keys){
+    return (keys || []).map(function(k){ return SERBY[k] }).filter(Boolean).map(function(x){
+      var w = trendW && x.wv;
+      var fn = (w ? x.wv : x.v) || x.v || x.wv;      // 兜底：两个口径都缺才是真没值
+      return { s:x, lab:(w ? (x.wlab || x.lab) : x.lab), color:x.color, fam:x.fam,
+               dec:x.dec, dash:FAM[x.fam].dash, val:fn };
+    }).filter(function(o){ return typeof o.val === 'function' });
+  }
+  function trendChart(days, keys){
+    days = days || [];
     if(!days.length) return '<div class="empty">当前筛选下无数据</div>';
-    opts = opts || {};
-    var H=330, pl=54, pr=60, pt=38, pb=48, n=days.length;
-    // 数据点多时按比例加宽画布（外层横向可滚动），保证每个点的数据标注互不重叠
-    var per = opts.per || 56;
-    var W = Math.max(opts.minW || 700, pl + pr + Math.max(1, n-1)*per);
-    var iw=W-pl-pr, ih=H-pt-pb;
-    var maxR = Math.max.apply(null, days.map(function(d){return d.r}).concat([1]))*1.3;
-    var maxC = Math.max.apply(null, days.map(function(d){return d.c}).concat([1]))*1.3;
-    function X(i){ return n===1 ? pl+iw/2 : pl + iw*i/(n-1) }
-    function YR(v){ return pt + ih - v/maxR*ih }
-    function YC(v){ return pt + ih - v/maxC*ih }
+    var ser = trendSeries(keys);
+    if(!ser.length) return '<div class="empty">未选择指标 —— 点上面的指标名即可显示曲线</div>';
+    var n = days.length, i, j;
+    ser.forEach(function(o){ o.vals = days.map(o.val) });
+    /* 轴位：百分比优先占左轴，其余族按目录顺序排到右侧 */
+    var fams = [];
+    ser.forEach(function(o){ if(fams.indexOf(o.fam) < 0) fams.push(o.fam) });
+    var pi = fams.indexOf('pct');
+    if(pi > 0){ fams.splice(pi, 1); fams.unshift('pct') }
+    var R = {};
+    fams.forEach(function(f){
+      var vs = [];
+      ser.forEach(function(o){ if(o.fam === f) vs = vs.concat(o.vals) });
+      var mn = Math.min.apply(null, vs), mx = Math.max.apply(null, vs);
+      var span = mx - mn, scale = Math.max(Math.abs(mx), Math.abs(mn)) || 1;
+      if(span < scale*0.02){ mn -= scale*0.15; mx += scale*0.15; }   // 全平线：给个窗口，别贴边
+      else { mn -= span*0.14; mx += span*0.14; }
+      if(mn < 0) mn = 0;                                             // 指标都非负，轴不跨 0
+      if(f === 'pct' && mx > 100) mx = 100;                          // 率值封顶 100%，别出现 114%
+      if(f === 'cnt' && mx - mn <= 20){                              // 小数量级：贴到 4 的整数倍，刻度好看
+        mn = 0; mx = Math.max(4, Math.ceil(mx/4)*4);
+      }
+      R[f] = { mn:mn, mx:mx };
+    });
+    var H=330, pl=58, pt=40, pb=46, per=56;
+    var nf = fams.length, pr = 14 + (nf-1)*64;
+    var W = Math.max(720, pl + pr + Math.max(1, n-1)*per);
+    var iw = W-pl-pr, ih = H-pt-pb;
+    var X  = function(i){ return n===1 ? pl+iw/2 : pl + iw*i/(n-1) };
+    var axX = function(fi){ return W - pr + 8 + (fi-1)*64 };
+    var Y  = function(v,f){ var r=R[f], sp=(r.mx-r.mn)||1; return pt + ih - (v-r.mn)/sp*ih };
     var s = '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" style="min-width:'+Math.round(W)+'px">';
     s += '<defs><filter id="halo" x="-30%" y="-30%" width="160%" height="160%">'+
          '<feMorphology operator="dilate" radius="2" in="SourceAlpha" result="d"/>'+
          '<feFlood flood-color="#fff"/><feComposite in2="d" operator="in" result="o"/>'+
          '<feMerge><feMergeNode in="o"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
-    for(var g=0; g<=4; g++){
-      var y = pt + ih*g/4;
-      s += '<line x1="'+pl+'" y1="'+y+'" x2="'+(W-pr)+'" y2="'+y+'" stroke="#eef1f6"/>';
-      s += '<text x="'+(pl-8)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="'+C_RATE+'">'+(maxR*(4-g)/4).toFixed(1)+'%</text>';
-      s += '<text x="'+(W-pr+8)+'" y="'+(y+4)+'" text-anchor="start" font-size="11" fill="'+C_COMP+'">'+(maxC*(4-g)/4).toFixed(0)+'s</text>';
+    for(j=0; j<=4; j++){
+      var gy = pt + ih*j/4;
+      s += '<line x1="'+pl+'" y1="'+gy.toFixed(1)+'" x2="'+(W-pr)+'" y2="'+gy.toFixed(1)+'" stroke="#eef1f6"/>';
+      fams.forEach(function(f, fi){
+        var r = R[f], fv = r.mx - (r.mx-r.mn)*j/4;
+        var txt = (f==='cnt' ? String(Math.round(fv)) : fv.toFixed(FAM[f].dec)) + FAM[f].unit;
+        if(fi === 0) s += '<text class="axl" x="'+(pl-8)+'" y="'+(gy+4).toFixed(1)+'" text-anchor="end" font-size="11" fill="#98a2b3">'+txt+'</text>';
+        else         s += '<text class="axl" x="'+axX(fi)+'" y="'+(gy+4).toFixed(1)+'" text-anchor="start" font-size="11" fill="#98a2b3">'+txt+'</text>';
+      });
     }
-    var d1 = days.map(function(d,i){ return (i?'L':'M')+X(i).toFixed(1)+' '+YR(d.r).toFixed(1) }).join(' ');
-    var d2 = days.map(function(d,i){ return (i?'L':'M')+X(i).toFixed(1)+' '+YC(d.c).toFixed(1) }).join(' ');
-    s += '<path d="'+d2+'" fill="none" stroke="'+C_COMP+'" stroke-width="2.4" stroke-linejoin="round" stroke-dasharray="7 5"/>';
-    s += '<path d="'+d1+'" fill="none" stroke="'+C_RATE+'" stroke-width="2.6" stroke-linejoin="round"/>';
-    var PB = pt + ih;   // 绘图区底边
-    var maxI = 0; days.forEach(function(d,i){ if(d.r > days[maxI].r) maxI = i });   // 峰值点
-    days.forEach(function(d,i){
-      var x = X(i).toFixed(1);
-      var yr = YR(d.r), yc = YC(d.c);
-      if(i === maxI)      // 峰值加一圈光环，便于一眼定位
-        s += '<circle cx="'+x+'" cy="'+yr.toFixed(1)+'" r="8.5" fill="none" stroke="'+C_RATE+'" stroke-width="1.6" opacity="0.45"/>';
-      s += '<circle cx="'+x+'" cy="'+yr.toFixed(1)+'" r="3.6" fill="#fff" stroke="'+C_RATE+'" stroke-width="2.2"/>';
-      s += '<circle cx="'+x+'" cy="'+yc.toFixed(1)+'" r="3.2" fill="#fff" stroke="'+C_COMP+'" stroke-width="2"/>';
-      // 数据标注：默认超时率在上、复合时长在下；贴边时互换，两者过近时再错开
-      // 首/末点的文字改用 start/end 锚点，避免压到左右两侧的坐标轴刻度
-      var anch = (n >= 3) ? (i === 0 ? 'start' : (i === n-1 ? 'end' : 'middle')) : 'middle';
-      var ry = yr - 9;
-      if(ry < pt + 9) ry = yr + 15;
-      var cy = yc + 16;
-      if(cy > PB - 5) cy = yc - 10;
-      if(cy > PB - 5) cy = PB - 6;
-      if(Math.abs(ry - cy) < 13){ ry = cy - 13; if(ry < pt + 9) ry = cy + 13; }
-      s += '<text x="'+x+'" y="'+ry.toFixed(1)+'" text-anchor="'+anch+'" font-size="10.5" font-weight="700" '+
-           'fill="'+C_RATE+'" filter="url(#halo)">'+d.r.toFixed(1)+'%</text>';
-      s += '<text x="'+x+'" y="'+cy.toFixed(1)+'" text-anchor="'+anch+'" font-size="10.5" font-weight="700" '+
-           'fill="'+C_COMP+'" filter="url(#halo)">'+Math.round(d.c)+'s</text>';
-      s += '<text x="'+x+'" y="'+(H-pb+22)+'" text-anchor="'+anch+'" font-size="11" fill="#98a2b3">'+d.dt.slice(5)+'</text>';
+    /* 曲线 + 数据点（点上带原生 title 提示，鼠标悬停可看当日确切值） */
+    var heads = [];
+    ser.forEach(function(o){
+      var pts = o.vals.map(function(v, ix){ return [X(ix), Y(v, o.fam)] });
+      var d = pts.map(function(p, ix){ return (ix?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1) }).join(' ');
+      s += '<path d="'+d+'" fill="none" stroke="'+o.color+'" stroke-width="2.4" stroke-linejoin="round"'+
+           (o.dash ? ' stroke-dasharray="'+o.dash+'"' : '')+'/>';
+      var mi = 0; o.vals.forEach(function(v, ix){ if(v > o.vals[mi]) mi = ix });
+      o.vals.forEach(function(v, ix){
+        var x = X(ix).toFixed(1), yy = Y(v, o.fam);
+        if(ix === mi && ser.length <= 2 && n > 2)      // 峰值光环：只在 1~2 条线时画，多了太花
+          s += '<circle cx="'+x+'" cy="'+yy.toFixed(1)+'" r="8.5" fill="none" stroke="'+o.color+'" stroke-width="1.6" opacity="0.45"/>';
+        s += '<circle cx="'+x+'" cy="'+yy.toFixed(1)+'" r="3.2" fill="#fff" stroke="'+o.color+'" stroke-width="2.1">'+
+             '<title>'+days[ix].dt+' · '+o.lab+' '+fmt(v, o.dec)+FAM[o.fam].unit+'</title></circle>';
+        if(ser.length <= 3) heads.push({ x:X(ix), y:yy, ix:ix, t:fmt(v, o.dec)+FAM[o.fam].unit, c:o.color });
+      });
+    });
+    /* 数据标注：同一横坐标上的多个标签按 y 排开，避免两条线接近时文字叠在一起 */
+    var byX = {};
+    heads.forEach(function(h){ var k = Math.round(h.x); (byX[k] = byX[k] || []).push(h) });
+    Object.keys(byX).forEach(function(k){
+      var arr = byX[k].sort(function(a,b){ return a.y - b.y }), last = -1e9;
+      arr.forEach(function(h){
+        var ty = h.y - 9;
+        if(ty < pt + 9) ty = h.y + 16;
+        if(ty < last + 12) ty = last + 12;
+        h.ty = ty; last = ty;
+      });
+    });
+    heads.forEach(function(h){
+      var anch = (n >= 3) ? (h.ix === 0 ? 'start' : (h.ix === n-1 ? 'end' : 'middle')) : 'middle';
+      s += '<text x="'+h.x.toFixed(1)+'" y="'+h.ty.toFixed(1)+'" text-anchor="'+anch+'" font-size="10.5" '+
+           'font-weight="700" fill="'+h.c+'" filter="url(#halo)">'+h.t+'</text>';
+    });
+    days.forEach(function(d, ix){
+      var anch = (n >= 3) ? (ix === 0 ? 'start' : (ix === n-1 ? 'end' : 'middle')) : 'middle';
+      var fill = d.dt === D.last ? '#101828' : '#98a2b3';
+      s += '<text x="'+X(ix).toFixed(1)+'" y="'+(H-pb+22)+'" text-anchor="'+anch+'" font-size="11" '+
+           'fill="'+fill+'" font-weight="'+(d.dt === D.last ? '700' : '400')+'">'+d.dt.slice(5)+'</text>';
     });
     s += '</svg>';
     return '<div class="chartwrap">'+s+'</div>';
+  }
+  /* 指标 chips：单选 / 多选 / 全选 + 加权开关 */
+  function trendChipsInner(){
+    var all = trendKeys.length === TSER.length;
+    return TSER.map(function(x){
+      var on = trendKeys.indexOf(x.k) >= 0, w = trendW && x.wv;
+      return '<button type="button" data-k="'+x.k+'" class="'+(on?'on':'')+'" title="'+(x.tip||x.lab)+'">'+
+             '<i style="background:'+x.color+'"></i>'+((w && x.wlab) ? x.wlab : x.lab)+'</button>';
+    }).join('') +
+      '<button type="button" data-k="__all" title="全选 / 清空">'+(all ? '清空' : '全选')+'</button>'+
+      '<label class="tw" title="按平台加权系数统计单数：提前点送达×2 · 投诉/差评×5"><input type="checkbox" id="tW"'+
+      (trendW?' checked':'')+'>加权数据</label>';
+  }
+  function trendLegendHTML(keys){
+    var ser = trendSeries(keys);
+    if(!ser.length) return '<span>未选择指标</span>';
+    return ser.map(function(o){
+      return '<span><i style="background:'+o.color+'"></i>'+o.lab+'</span>';
+    }).join('') +
+      '<span style="color:#98a2b3">'+(trendW
+        ? '加权口径：提前点送达×2 · 投诉/差评×5'
+        : '原始口径：按事件条数计（未加权）')+
+      (ser.length > 3 ? ' · 指标较多时点上不标数字，悬停点看当日值' : ' · 点上数字为每日实际值')+'</span>';
+  }
+  function trendBlockHTML(days){
+    return '<div class="mtabcap" style="margin-top:14px">📈 逐日走势（整个周期） '+
+      '<span style="font-weight:400;color:#98a2b3">点指标名可单选 / 多选 / 全选；% 走左轴，秒 / 单走右轴</span></div>'+
+      '<div class="tchips" id="tchips">'+trendChipsInner()+'</div>'+
+      '<div id="tlbox">'+trendChart(days, trendKeys)+'</div>'+
+      '<div class="mlegend" id="tlegend">'+trendLegendHTML(trendKeys)+'</div>';
+  }
+  function syncTrend(days){
+    var c = $('#tchips'), b = $('#tlbox'), l = $('#tlegend');
+    if(c) c.innerHTML = trendChipsInner();
+    if(b) b.innerHTML = trendChart(days, trendKeys);
+    if(l) l.innerHTML = trendLegendHTML(trendKeys);
+  }
+  /* 事件委托绑在不会重绘的 #tlwrap 上：chips 内部整体重绘也不会丢监听 */
+  function bindTrend(days){
+    var wrap = $('#tlwrap');
+    if(!wrap || wrap.__trendBound) return;
+    wrap.__trendBound = true;
+    wrap.addEventListener('click', function(e){
+      var b = e.target.closest('#tchips button');
+      if(!b) return;
+      e.preventDefault(); e.stopPropagation();
+      var k = b.getAttribute('data-k');
+      if(k === '__all'){
+        trendKeys = (trendKeys.length === TSER.length) ? [] : TSER.map(function(x){ return x.k });
+      }else{
+        var i2 = trendKeys.indexOf(k);
+        if(i2 < 0) trendKeys.push(k); else trendKeys.splice(i2, 1);
+      }
+      syncTrend(days);
+    });
+    wrap.addEventListener('change', function(e){
+      if(e.target && e.target.id === 'tW'){ trendW = !!e.target.checked; syncTrend(days) }
+    });
   }
   /* ================= 四项考核指标区块（骑手/站点弹窗共用） ================= */
   function metricBlock(m, ctx){
@@ -3064,18 +3220,18 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       '</div>'+
       metricBlock(metricsOf(rv), ctxAll)+
       statLine(days)+
-      '<div class="mlegend"><span><i style="background:'+C_RATE+'"></i>超时率（左轴·实线）</span>'+
-        '<span><i style="background:'+C_COMP+'"></i>单均复合（右轴·虚线）</span>'+
-        '<span style="color:#98a2b3">点上/点下数字为每日实际值</span></div>'+
-      lineChart(days)+
+      '<div id="tlwrap">'+trendBlockHTML(days)+'</div>'+
       '<div class="mtabcap">📅 每日明细（整个周期）</div>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">超时单</th>'+
-      '<th class="num">超时率</th><th class="num">完全妥投率</th><th class="num">T8准时率</th>'+
+      '<th class="num">超时率</th><th class="num">完全妥投率</th><th class="num">非妥投率</th>'+
+      '<th class="num">加权未完成</th><th class="num">T8准时率</th>'+
       '<th class="num">单均复合</th><th class="num">不满意</th></tr></thead><tbody>'+
         days.map(function(d){
           return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
             '<td class="num">'+pct(d.r)+'</td>'+
             '<td class="num" style="color:#059669">'+pct(d.fullR)+'</td>'+
+            '<td class="num" style="color:#dc2626">'+pct(d.missR)+'</td>'+
+            '<td class="num" style="color:#c026d3">'+fmt(d.missAdd,0)+'</td>'+
             '<td class="num" style="color:#0891b2">'+pct(d.t8R)+'</td>'+
             '<td class="num">'+fmt(d.c,1)+'s</td>'+
             '<td class="num" style="color:#d97706">'+pct(d.satR)+'</td></tr>';
@@ -3084,6 +3240,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     mo.className = 'modal';
     mo.innerHTML = html; mo.classList.add('show');
     _modalOpenedAt = Date.now();
+    bindTrend(days);
     $('#mclose').onclick = function(){ mo.classList.remove('show') };
     $('#mexp').onclick = function(e){
       e.stopPropagation();
@@ -3145,12 +3302,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var mcell = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
     var dayTab = '<div style="overflow-x:auto"><table><thead><tr>'+
       '<th>日期</th><th class="num">单量</th><th class="num">超时单</th><th class="num">超时率</th>'+
-      '<th class="num">完全妥投率</th><th class="num">T8准时率</th><th class="num">单均复合</th>'+
+      '<th class="num">完全妥投率</th><th class="num">非妥投率</th><th class="num">加权未完成</th><th class="num">T8准时率</th><th class="num">单均复合</th>'+
       '<th class="num">不满意</th><th class="num">出勤骑手</th></tr></thead><tbody>'+
       days.map(function(d){
         return '<tr><td>'+d.dt+'</td><td class="num">'+d.t+'</td><td class="num">'+d.o+'</td>'+
           '<td class="num" style="color:'+rateColor(d.r)+';font-weight:700">'+pct(d.r)+'</td>'+
           '<td class="num" style="color:#059669">'+pct(d.fullR)+'</td>'+
+          '<td class="num" style="color:#dc2626">'+pct(d.missR)+'</td>'+
+          '<td class="num" style="color:#c026d3">'+fmt(d.missAdd,0)+'</td>'+
           '<td class="num" style="color:#0891b2">'+pct(d.t8R)+'</td>'+
           '<td class="num">'+fmt(d.c,1)+'s</td>'+
           '<td class="num" style="color:#d97706">'+pct(d.satR)+'</td>'+
@@ -3192,10 +3351,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       '</div>'+
       metricBlock(metricsOf((function(){ var v=newVec(); days.forEach(function(d){ addVec(v, d._v) }); return v })()), ctxSt)+
       statLine(days)+
-      '<div class="mlegend"><span><i style="background:'+C_RATE+'"></i>超时率（左轴·实线）</span>'+
-        '<span><i style="background:'+C_COMP+'"></i>单均复合（右轴·虚线）</span>'+
-        '<span style="color:#98a2b3">点上/点下数字为每日实际值，峰值带光环</span></div>'+
-      lineChart(days)+
+      '<div id="tlwrap">'+trendBlockHTML(days)+'</div>'+
       '<div class="mtabcap">📅 每日明细（整个周期）</div>'+ dayTab +
       '<div class="mtabcap">👥 该站骑手排行 <span style="font-weight:400;color:#98a2b3">共 '+allRd.length+' 名出勤，'+
         '按最少单量 ≥ '+scope.min+' 显示 '+rd.length+' 名（<b>按综合评价分降序</b>）；点任一行看逐日明细</span></div>'+ rTab +
@@ -3204,6 +3360,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     mo.className = 'modal';
     mo.innerHTML = html; mo.classList.add('show');
     _modalOpenedAt = Date.now();
+    bindTrend(days);
     $('#mclose').onclick = function(){ mo.classList.remove('show') };
     $('#mexp').onclick = function(e){
       e.stopPropagation();
@@ -4910,7 +5067,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     '<br><b>排名筛选</b>：骑手明细的「排名」列 = <b>超时率排名</b>（在「最少单量 / 站点 / 搜索」筛选出的候选池内，1 = 超时率最高，并列时超时单多者在前）；'+
     '右侧「超时率前 5%/10%/15%/20%」按该排名只保留前 N%（默认 <b>10%</b>），选「全部」则不过滤。'+
     '<br><b>交互</b>：点击表头任一项排序；点击骑手行查看其<b>全量</b>逐日折线明细；'+
-    '<b>点击站点卡片</b> → 查看该站<b>整个周期</b>的逐日趋势折线（带每日数据标注与峰值光环）、每日明细表、以及该站骑手排行（可再点进单个骑手）；'+
+    '<b>点击站点卡片</b> → 查看该站<b>整个周期</b>的逐日趋势折线（曲线指标可单选 / 多选 / 全选，并可切换加权口径；带每日数据标注与峰值光环）、每日明细表、以及该站骑手排行（可再点进单个骑手）；'+
     '以上明细均不受上方日期筛选影响；'+
     '每个板块右上角「导出图片」可把该板块保存为 PNG；顶部可上传新的运单明细 xlsx，数据在本地浏览器解析，不会上传到任何服务器。'+
     '<br><br><b style="font-size:13px">四项考核指标（平台公式）</b>'+
