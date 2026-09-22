@@ -40,6 +40,8 @@ header.hero .badge{display:inline-block;margin-top:12px;background:rgba(255,255,
   border:1px solid rgba(255,255,255,.35);padding:4px 10px;border-radius:20px;font-size:12px}
 .sec-title{display:flex;align-items:baseline;gap:8px;margin:26px 4px 12px;font-size:15px;font-weight:700;
   flex-wrap:nowrap;white-space:nowrap}
+.sec-title .wnote,.wnote{font-weight:400;font-size:11.5px;color:#98a2b3;opacity:.95;white-space:nowrap;margin-left:6px}
+.hero .wnote{color:rgba(255,255,255,.82)}
 .sec-title .dot{flex:0 0 auto;align-self:center;width:5px;height:16px;border-radius:3px;background:linear-gradient(#2563eb,#7c3aed)}.sec-title small{font-weight:400;color:var(--sub);font-size:12px;margin-left:2px;
   flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #exclSummary{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
@@ -546,6 +548,13 @@ button.tag{padding:4px 11px;font-size:11.5px}
   width:24px;height:26px;font-size:14px;line-height:1;cursor:pointer;padding:0}
 .rangebar .rbtn:hover{background:rgba(255,255,255,.34)}
 .rangebar .rbtn[disabled]{opacity:.35;cursor:default}
+/* ★★ 弹窗打开时：口径开关浮到最上层 —— 还是同一个控件（不是第二个开关），
+   否则页面被弹窗盖住，用户点不到它（2026-09-22 反馈「无法点击加权按钮」）。 */
+body.modalOn #wSeg{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:90;
+  margin:0;padding:3px;border-radius:12px;background:rgba(15,23,42,.93);
+  box-shadow:0 8px 24px rgba(2,6,23,.42)}
+body.modalOn #wSeg button{color:rgba(255,255,255,.88);padding:5px 14px;font-size:12px}
+body.modalOn #wSeg button.on{background:#fff;color:#2563eb}
 /* 口径开关：桌面端靠右（与数据范围控件分开），手机上跟在同一行尾 */
 .rangebar .wseg{margin-left:auto}
 .rangebar .wseg button{padding:4px 10px;font-size:11.5px}
@@ -711,7 +720,7 @@ button.tag{padding:4px 11px;font-size:11.5px}
   </div>
 
   <section class="mod" data-name="最新数据">
-  <div class="sec-title"><span class="dot"></span>最新数据 <small id="lastTag"></small></div>
+  <div class="sec-title"><span class="dot"></span>最新数据 <small id="lastTag"></small><span class="wnote"></span></div>
   <div class="grid kpi" id="kpiLast"></div>
   <details class="fold"><summary>指标说明 · 三行怎么读 <span class="fsub">二呼/卡餐两行是对大盘的影响值</span></summary>
   <div class="fbody"><div class="mixnote">
@@ -728,7 +737,7 @@ button.tag{padding:4px 11px;font-size:11.5px}
   <details class="fold sec morefold">
   <summary><span class="ftitle">更多分析</span><span class="fsub" id="more1Sub">全周期概览 · 质量四指标 · 日期趋势 · 卡餐二呼影响 · 团队综合分 · 剔除明细</span></summary>
   <details class="mod collapsible" data-name="全周期概览">
-  <summary class="sec-title"><span class="dot"></span><span id="ovTitle">全周期概览</span></summary>
+  <summary class="sec-title"><span class="dot"></span><span id="ovTitle">全周期概览</span><span class="wnote"></span></summary>
   <div class="grid kpi" id="kpiAll"></div>
   <details class="fold"><summary>指标说明 · 三行怎么读 <span class="fsub">二呼/卡餐两行是对大盘的影响值</span></summary>
   <div class="fbody"><div class="mixnote">
@@ -760,7 +769,7 @@ button.tag{padding:4px 11px;font-size:11.5px}
         <button data-m="rate" class="on">超时率</button>
         <button data-m="full">完全妥投率</button>
         <button data-m="miss">非妥投率</button>
-        <button data-m="t8">预测T8准时率</button>
+        <button data-m="t8">T8准时率</button>
         <button data-m="sat">不满意</button>
         <button data-m="comp">单均复合时长</button>
         <button data-m="tot">单量</button>
@@ -831,7 +840,7 @@ button.tag{padding:4px 11px;font-size:11.5px}
   </details>
 
 <details class="mod collapsible" data-name="站点维度">
-  <summary class="sec-title"><span class="dot"></span>站点维度 <small id="stDimSub">全周期对比 + 最新表现 · 点卡片看整周期明细</small></summary>
+  <summary class="sec-title"><span class="dot"></span>站点维度 <small id="stDimSub">全周期对比 + 最新表现 · 点卡片看整周期明细</small><span class="wnote"></span></summary>
   <div class="grid" id="stationGrid" style="grid-template-columns:repeat(2,1fr)"></div>
   </details>
   </details>
@@ -860,7 +869,7 @@ button.tag{padding:4px 11px;font-size:11.5px}
   </div>
 
   <section class="mod" data-name="骑手明细排行" id="riderRank">
-  <div class="sec-title"><span class="dot"></span>骑手明细排行</div>
+  <div class="sec-title"><span class="dot"></span>骑手明细排行<span class="wnote"></span></div>
   <div class="card">
     <div class="ctrl">
       <div class="seg" id="viewSeg">
@@ -1038,17 +1047,27 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     });
   }
   /* ★ 文案联动：口径开关一改，所有标题 / 表头 / 悬浮提示里的指标名一起变（只在这里定义一份） */
-  var LBW = { rate:'T8超时率', rateF:'T8超时率', rateS:'T8超时', o:'加权超时单', oS:'加权超时', oF:'加权超时单',
-              onTime:'T8准时率', onTimeF:'预测T8准时率', onTimeS:'T8准时',
-              miss:'非妥投订单', missF:'加权未完成单', missS:'加权未完成',
-              sat:'不满意单', satF:'加权不满意单', satS:'加权不满意',
-              note:'加权口径' };
-  var LBR = { rate:'超时率', rateF:'超时率', rateS:'超时', o:'超时单', oS:'超时单', oF:'超时单',
-              onTime:'准时率', onTimeF:'准时率', onTimeS:'准时',
-              miss:'非妥投订单', missF:'非妥投订单', missS:'非妥投订单',
-              sat:'不满意单', satF:'不满意单', satS:'不满意',
-              note:'原始口径' };
-  function LB(k){ return (weighted ? LBW : LBR)[k] || k }
+  /* ★ 统一命名（不再随口径换名字）：每个指标只有一个名字，口径只在**标题**上标注一次。
+       超时率 · 超时单 · T8准时率 · 非妥投率 · 非妥投单 · 完全妥投率 · 不满意率 · 不满意单 ·
+       复合总时长 · 单均复合 · 单量
+     加权/原始的差别只体现在数值与标题后缀（WN()），不再让同一个指标出现两个名字。 */
+  var LBS = { rate:'超时率', rateF:'超时率', rateS:'超时',
+              o:'超时单', oF:'超时单', oS:'超时单',
+              onTime:'T8准时率', onTimeF:'T8准时率', onTimeS:'T8准时',
+              miss:'非妥投单', missF:'非妥投单', missS:'非妥投单',
+              missR:'非妥投率', fullR:'完全妥投率',
+              sat:'不满意单', satF:'不满意单', satS:'不满意单', satR:'不满意率',
+              comp:'单均复合', tot:'单量', share:'占比' };
+  function LB(k){ return LBS[k] || k }
+  function WNOTE(){ return weighted ? '加权口径' : '原始口径' }
+  function WSUF(){ return '· ' + WNOTE() }
+  /* 四项考核指标卡片里的「单数」小标：沿用平台描述（加权单 / 加权超时单），原始口径退回单数说法 */
+  function SUB(k){
+    var W = weighted;
+    return ({ miss: W ? '加权单' : '单',
+              o:    W ? '加权超时单' : '超时单',
+              sat:  W ? '加权单' : '单' })[k] || '';
+  }
   /* 四个指标的「团队占比」= 加权分子 ÷ 团队加权分子（加权 = 平台公式系数，见口径说明） */
   function sharesOf(m, T){
     return {
@@ -1963,7 +1982,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     /* ★ 日期前缀一律用 dayLabel() 现算：报表可能是今天/昨天/更早上传的，
        写死「昨日」会误导（用户 2026-09-20 提出）。 */
     var dL = dayLabel(D.last);
-    $('#heroBadge').textContent = dL+LB('rate')+' '+pct(L.r)+' ｜ 单均复合 '+fmt(L.c,1)+' 秒';
+    $('#heroBadge').textContent = dL+LB('rate')+' '+pct(L.r)+' ｜ 单均复合 '+fmt(L.c,1)+' 秒 · '+WNOTE();
     /* 标签：今日/昨日时压缩成「今日 09-20」，更早的日期给完整日期（可能跨年，年份不能省） */
     $('#lastTag').textContent = '（' +
       ((dL==='今日'||dL==='昨日') ? dL+' '+D.last.slice(5) : D.last) + '）· '+selText();
@@ -2087,6 +2106,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       var b = e.target.closest('button'); if(!b) return;
       e.preventDefault();
       setWeighted(b.getAttribute('data-w') === '1');
+      toast('<b>已切到 '+WNOTE()+'</b> · '+(weighted ? '投诉/差评×5 · 提前点送达×2 · 高笔非准时计入 T8' : '每个事件各计 1 单'), 2600);
     });
     syncWeightSeg();
   }
@@ -2176,18 +2196,18 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   /* 四个考核指标的定义（卡片 / 迷你折线 / 详情弹窗共用一份，改口径只改这里） */
   function MET4(){ return [          // ★ 函数化：口径切换后指标名要跟着变
     { k:'missR',  lab:'① 非妥投率',      color:'#dc2626', unit:'%', dec:2,
-      sub:LB('missF'), subKey:'missAdd', subUnit:'',
-      desc:'妥投失败的订单占比（平台原名：不完全妥投率）= '+LB('missF')+' ÷（有效完单 + '+LB('missF')+'）' },
+      sub:SUB('miss'), subKey:'missAdd', subUnit:'',
+      desc:'妥投失败的订单占比（平台原名：不完全妥投率）= '+LB('miss')+' ÷（有效完单 + '+LB('miss')+'）' },
     { k:'t8Late', lab:'② '+LB('rate'),      color:'#be185d', unit:'%', dec:2,
-      sub:LB('o'), subKey:'t8Loss', subUnit:'',
-      desc:'= '+LB('o')+' ÷（有效完单 + 高笔非准时加权）；'+LB('o')+' = 超时单 + 高笔 + 虚假报备出餐慢取消 + 虚假改派规避 + 提前点送达×2' },
+      sub:SUB('o'), subKey:'t8Loss', subUnit:'',
+      desc:'= 超时单 ÷（有效完单 + 高笔非准时加权）；加权口径的超时单 = T8超时单 + 高笔 + 虚假报备出餐慢取消 + 虚假改派规避 + 提前点送达×2' },
     { k:'avgComp',lab:'③ 单均复合超时时长', color:'#7c3aed', unit:'s', dec:1,
       sub:'复合合计', subKey:'s', subUnit:'s',
-      desc:'= 复合总时长 ÷ 有效完单；复合时长 = Σ(每单实际送达 − 应付送达) 的正值部分' },
+      desc:'= 复合总时长 ÷ 有效完单；复合时长 = Σ(每单实际送达 − 应付送达) 的正值部分（不受口径影响）' },
     { k:'satR',   lab:'④ 不满意',         color:'#d97706', unit:'%', dec:2,
-      sub:LB('sat'), subKey:'satW', subUnit:'',
-      desc:'平台原名「非时效不满意度」= 加权单 ÷ 接单量；加权 = 投诉×5 + 差评×5 + 索赔 + 虚假报备出餐慢取消' }
-  ] };;
+      sub:SUB('sat'), subKey:'satW', subUnit:'',
+      desc:'平台原名「非时效不满意度」= 不满意单 ÷ 接单量；加权口径的不满意单 = 投诉×5 + 差评×5 + 索赔 + 虚假报备出餐慢取消' }
+  ] };
   function metVal(M, a){ return a ? a[M.k] : 0 }
   function metTxt(M, v){ return M.unit==='%' ? pct(v) : fmt(v, M.dec)+(M.unit||'') }
   /* 迷你折线：自带数据标注。
@@ -2554,9 +2574,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     { k:'o',      lab:LB('o'),       num:true },
     { k:'r',      lab:LB('rate'),    num:true },
     { k:'shareO', lab:LB('o')+'占比',  num:true,
-      tip:'该骑手【'+(weighted?'原始超时单':'超时单')+'】÷ 当前范围全部骑手的超时单（与左侧「'+LB('o')+'」「'+LB('rate')+'」同口径）。'+
-          '\n注意：与质量指标视图里的「T8占比」不是同一口径 —— 那边用的是 T8'+LB('oS')+'（含高笔、虚假报备、虚假改派、提前点送达×2），'+
-          '所以两个视图这一格的数值天然不同。' },
+      tip:'该骑手【超时单】÷ 当前范围全部骑手的超时单（与左侧「超时单」「超时率」同口径，口径在主页页首切换）。' },
     { k:'s',      lab:'复合总时长',  num:true },
     { k:'shareS', lab:'复合占比',    num:true },
     { k:'c',      lab:'单均复合',num:true }
@@ -2569,21 +2587,21 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     { k:'n',      lab:'骑手',        num:false },
     { k:'st',     lab:'站点',        num:false },
     { k:'t',      lab:'单量',        num:true },
-    { k:'missAdd',lab:'非妥投·加权单', num:true },
+    { k:'missAdd',lab:LB('miss'),      num:true },
     { k:'s1',     lab:'非妥投占比',    num:true },
     { k:'missR',  lab:'非妥投率',      num:true },
-    { k:'t8W',    lab:'T8·'+LB('oS'), num:true },
-    { k:'s2',     lab:'T8占比',      num:true,
-      tip:'该骑手【T8'+LB('oS')+'】÷ 全体骑手的 T8'+LB('oS')+'（团队占比·原式，四项各自合计恒 100%）。'+
-          '\nT8'+LB('oS')+' = 超时单 + 高笔T8非准时 + 虚假报备出餐慢取消 + 虚假改派偷准达 + 提前点送达×2 —— 即计分口径（②项）。'+
-          '\n与超时视图的「超时单占比」不同：那个只数原始超时单，不含任何加权与虚假件。' },
+    { k:'t8W',    lab:LB('o'),        num:true },
+    { k:'s2',     lab:LB('o')+'占比', num:true,
+      tip:'该骑手【超时单】÷ 全体骑手的超时单（团队占比·原式，四项各自合计恒 100%）。'+
+          '\n加权口径：超时单 = T8超时单 + 高笔T8非准时 + 虚假报备出餐慢取消 + 虚假改派偷准达 + 提前点送达×2；'+
+          '原始口径 = 只数迟到单。口径在主页页首切换。' },
     { k:'t8Late', lab:LB('rate'),    num:true },
     { k:'s',      lab:'复合总时长',  num:true },
     { k:'s3',     lab:'复合占比',    num:true },
     { k:'avgComp',lab:'单均复合',    num:true },
-    { k:'satW',   lab:'不满意·加权单', num:true },
+    { k:'satW',   lab:LB('sat'),      num:true },
     { k:'s4',     lab:'不满意占比',  num:true },
-    { k:'satR',   lab:'不满意',      num:true }
+    { k:'satR',   lab:LB('satR'),     num:true }
   ] };
   function COLS(){ return view==='quality' ? COLS_Q() : COLS_T() }
 
@@ -2720,7 +2738,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     mo.innerHTML = '<div class="exp-body">'+h+'</div>';
     mo.classList.add('show');
     _modalOpenedAt = Date.now();
-    var mc = $('#mclose'); if(mc) mc.onclick = function(){ mo.classList.remove('show') };
+    var mc = $('#mclose'); if(mc) mc.onclick = function(){ mo.classList.remove('show'); document.body.classList.remove('modalOn') };
     var ids = rows.map(function(r){ return r.id }).filter(function(v){ return v });
     var b1 = $('#anomCopy1');
     if(b1) b1.onclick = function(){
@@ -2979,9 +2997,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   function setWeighted(on){
     weighted = !!on;
     try{ localStorage.setItem('dash_weighted', weighted ? '1' : '0') }catch(e){}
-    syncWeightSeg();
+    syncWeightSeg(); syncWnote();
     if(D) renderAll();                                      // 主页所有数字 + 文案一起联动
     if(MODAL_REOPEN && $('#modal') && $('#modal').classList.contains('show')) MODAL_REOPEN();  // 弹窗开着也整块重渲染
+  }
+  /* 所有标题上的口径标注（.wnote）统一在这里回填 —— 标题只标「是否加权」，指标名不动 */
+  function syncWnote(){
+    var t = WSUF();
+    [].forEach.call(document.querySelectorAll('.wnote'), function(e){ e.textContent = t });
   }
   function syncWeightSeg(){
     var seg = $('#wSeg'); if(!seg) return;
@@ -3144,7 +3167,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       (ser.length > 3 ? ' · 指标较多时点上不标数字，悬停点看当日值' : ' · 点上数字为每日实际值')+'</span>';
   }
   function trendBlockHTML(days){
-    return '<div class="mtabcap" style="margin-top:14px">📈 逐日走势（整个周期） '+
+    return '<div class="mtabcap" style="margin-top:14px">📈 逐日走势（整个周期）<span class="wnote"></span> '+
       '<span style="font-weight:400;color:#98a2b3">点指标名可单选 / 多选 / 全选；% 走左轴，秒 / 单走右轴；'+
       '口径（加权/原始）在主页页首切</span></div>'+
       '<div class="tchips" id="tchips">'+trendChipsInner()+'</div>'+
@@ -3183,7 +3206,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var T = ctx.T, sh = sharesOf(m, T), sc = scoreOf(m, ctx);
     var col = sc>=90 ? '#059669' : (sc>=80 ? '#b45309' : '#dc2626');
     var mc = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
-    return '<div class="mtabcap">🧮 四项考核指标 <span style="font-weight:400;color:#98a2b3">'+
+    return '<div class="mtabcap">🧮 四项考核指标<span class="wnote"></span> <span style="font-weight:400;color:#98a2b3">'+
       LB('missF')+' '+Math.round(m.missAdd)+' 单 · T8'+LB('oS')+' '+Math.round(m.t8Loss)+' 单 · 复合合计 '+Math.round(m.s)+
       's · 不满意加权 '+Math.round(m.satW)+' 单</span></div>'+
       '<div class="mgrid">'+
@@ -3263,9 +3286,9 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       '</div>';
     var mo = $('#modal');
     mo.className = 'modal';
-    mo.innerHTML = html; mo.classList.add('show');
+    mo.innerHTML = html; mo.classList.add('show'); document.body.classList.add('modalOn'); syncWnote();
     _modalOpenedAt = Date.now();
-    $('#mclose').onclick = function(){ mo.classList.remove('show') };
+    $('#mclose').onclick = function(){ mo.classList.remove('show'); document.body.classList.remove('modalOn') };
   }
   /* 单指标大折线（一座标轴 + 逐点标注，与卡片的迷你折线同色系） */
   function lineChart2(days, M){
@@ -3329,7 +3352,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       metricBlock(metricsOf(rv), ctxAll)+
       statLine(days)+
       '<div id="tlwrap">'+trendBlockHTML(days)+'</div>'+
-      '<div class="mtabcap">📅 每日明细（整个周期）</div>'+
+      '<div class="mtabcap">📅 每日明细（整个周期）<span class="wnote"></span></div>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">'+escA(LB('o'))+'</th>'+
       '<th class="num">'+escA(LB('rate'))+'</th><th class="num">完全妥投率</th><th class="num">非妥投率</th>'+
       '<th class="num">'+escA(LB('missS'))+'</th><th class="num">'+escA(LB('onTime'))+'</th>'+
@@ -3346,11 +3369,11 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
         }).join('')+'</tbody></table></div></div>';
     var mo = $('#modal');
     mo.className = 'modal';
-    mo.innerHTML = html; mo.classList.add('show');
+    mo.innerHTML = html; mo.classList.add('show'); document.body.classList.add('modalOn'); syncWnote();
     _modalOpenedAt = Date.now();
     bindTrend(days);
     MODAL_REOPEN = function(){ openRider(ri) };
-    $('#mclose').onclick = function(){ mo.classList.remove('show') };
+    $('#mclose').onclick = function(){ mo.classList.remove('show'); document.body.classList.remove('modalOn') };
     $('#mexp').onclick = function(e){
       e.stopPropagation();
       doExport(mo.querySelector('.modal-card'), r.n+' 全量逐日明细',
@@ -3361,7 +3384,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   $('#modal').addEventListener('click', function(e){
     if(e.target !== this) return;
     if(Date.now() - _modalOpenedAt < 450) return;   // 防「幽灵点击」刚打开就被关掉
-    this.classList.remove('show');
+    this.classList.remove('show'); document.body.classList.remove('modalOn');
   });
 
   /* ★ 弹窗打开时锁住背景滚动。
@@ -3461,17 +3484,17 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       metricBlock(metricsOf((function(){ var v=newVec(); days.forEach(function(d){ addVec(v, d._v) }); return v })()), ctxSt)+
       statLine(days)+
       '<div id="tlwrap">'+trendBlockHTML(days)+'</div>'+
-      '<div class="mtabcap">📅 每日明细（整个周期）</div>'+ dayTab +
+      '<div class="mtabcap">📅 每日明细（整个周期）<span class="wnote"></span></div>'+ dayTab +
       '<div class="mtabcap">👥 该站骑手排行 <span style="font-weight:400;color:#98a2b3">共 '+allRd.length+' 名出勤，'+
         '按最少单量 ≥ '+scope.min+' 显示 '+rd.length+' 名（<b>按综合评价分降序</b>）；点任一行看逐日明细</span></div>'+ rTab +
       '</div>';
     var mo = $('#modal');
     mo.className = 'modal';
-    mo.innerHTML = html; mo.classList.add('show');
+    mo.innerHTML = html; mo.classList.add('show'); document.body.classList.add('modalOn'); syncWnote();
     _modalOpenedAt = Date.now();
     bindTrend(days);
     MODAL_REOPEN = function(){ openStation(st) };
-    $('#mclose').onclick = function(){ mo.classList.remove('show') };
+    $('#mclose').onclick = function(){ mo.classList.remove('show'); document.body.classList.remove('modalOn') };
     $('#mexp').onclick = function(e){
       e.stopPropagation();
       doExport(mo.querySelector('.modal-card'), st+' 全周期明细',
@@ -4730,7 +4753,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       }
     }, 6000);
     $('#modeBtn').onclick = function(){ mode = (mode==='fitw'?'fith':'fitw'); applyMode() };
-    var close = function(){ mo.classList.remove('show'); window.removeEventListener('resize', applyMode) };
+    var close = function(){ mo.classList.remove('show'); document.body.classList.remove('modalOn'); window.removeEventListener('resize', applyMode) };
     $('#mclose').onclick = close; $('#mclose2').onclick = close;
     if(res.back && $('#mback')) $('#mback').onclick = function(){ res.back() };
   }
@@ -5153,6 +5176,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
 
   function renderAll(){
     if(!D) return;
+    syncWnote();
     renderFilterBar();
     LASTBYD = renderKPI();
     drawTrend(LASTBYD);
