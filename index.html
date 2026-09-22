@@ -560,8 +560,9 @@ body.modalOn #wSeg{position:fixed;left:50%;bottom:12px;transform:translateX(-50%
 body.modalOn #wSeg button{color:rgba(255,255,255,.88);padding:5px 14px;font-size:12px}
 body.modalOn #wSeg button.on{background:#fff;color:#2563eb}
 /* 口径开关：桌面端靠右（与数据范围控件分开），手机上跟在同一行尾。
-   z-index 双保险：即使将来又加了什么装饰层，控件也不会被盖住点不到。 */
-.rangebar{position:relative;z-index:2}
+   ★ 只给开关自己 position+z-index（压过页首的装饰圆）。
+   ★★ 千万别给 .rangebar 加 z-index —— 那会造出一个层叠上下文，把弹窗打开时
+      「浮到最上层」的口径开关锁在里面（表现：浮层被弹窗卡片盖住、点不到）。 */
 .rangebar .wseg{margin-left:auto;position:relative;z-index:2}
 .rangebar .wseg button{padding:4px 10px;font-size:11.5px}
 @media(max-width:520px){ .rangebar .wseg{margin-left:0} }
