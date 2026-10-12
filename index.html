@@ -1181,10 +1181,10 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
   function scopeLong(){
     var n = dayList().length;
     if(scope.mode==='all') return '全周期 '+D.dates[0]+' ~ '+D.last+'（'+n+' 天）';
-    if(scope.mode==='day') return dayLabel(scope.day)+' '+scope.day+'（1 天）';
+    if(scope.mode==='day') return '当日 '+dayLabel(scope.day)+'（'+scope.day+'）';
     var f = (scope.from||D.dates[0]), t = (scope.to||D.last);
     if(f > t){ var x = f; f = t; t = x; }
-    return f+' ~ '+t+'（'+n+' 天）';
+    return '自定义范围 '+f+' ~ '+t+'（'+n+' 天）';
   }
   /* 模块标题里的范围词：全周期 / 当日 / 自定义范围 */
   function scopeWord(){
@@ -1228,9 +1228,14 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       var m = metricsOf(acc[st]); m.st = st; return m;
     });
   }
-  function riderDays(ri, s){              // 单个骑手的逐日序列
+  /* ★ v104：dts 给定时只取这些天 —— 弹窗要跟随页首「数据范围」（全周期/当日/自定义），
+     不给就退回全部天（老调用点行为不变）。 */
+  function dayIdxList(dts){ return dts && dts.length ? dts : (function(){ var a=[]; for(var i=0;i<D.grid.length;i++) a.push(i); return a })() }
+  function riderDays(ri, s, dts){         // 单个骑手的逐日序列
     var out = [];
-    for(var i=0;i<D.grid.length;i++){
+    var list = dayIdxList(dts);
+    for(var q=0;q<list.length;q++){
+      var i = list[q];
       var cell = null;
       (D.grid[i]||[]).forEach(function(e){ if(e[0]===ri) cell = e.slice(1); });
       if(!cell) continue;
@@ -1241,9 +1246,11 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     }
     return out;
   }
-  function stationDays(st, s){            // 单个站点的逐日序列（整个周期）
+  function stationDays(st, s, dts){       // 单个站点的逐日序列（跟随传入的天）
     var out = [];
-    for(var i=0;i<D.grid.length;i++){
+    var list = dayIdxList(dts);
+    for(var q=0;q<list.length;q++){
+      var i = list[q];
       var v = newVec(), rd = 0;
       (D.grid[i]||[]).forEach(function(e){
         if(D.riders[e[0]].st !== st) return;
@@ -1259,9 +1266,11 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     }
     return out;
   }
-  function stationRiders(st, s){          // 单个站点的骑手列表（整个周期）
+  function stationRiders(st, s, dts){     // 单个站点的骑手列表（跟随传入的天）
     var acc = {};
-    for(var i=0;i<D.grid.length;i++){
+    var list = dayIdxList(dts);
+    for(var q=0;q<list.length;q++){
+      var i = list[q];
       (D.grid[i]||[]).forEach(function(e){
         if(D.riders[e[0]].st !== st) return;
         var ri = e[0], a = acc[ri] || (acc[ri] = newVec());
@@ -1283,10 +1292,17 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     });
     return { max:mx, min:mn, avg: tr/days.length, totO:to, totT:tt, avgC: tt ? days.reduce(function(a,d){return a+d.s},0)/tt : 0 };
   }
-  function statLine(days){                // 图表上方的「整个周期」极值/均值标注
+  /* 标题里统一写「当前数据范围」（跟随页首控件），不再写死「整个周期」 */
+  /* 弹窗里各区块标题用的范围描述：短一些、不带嵌套括号（弹窗标题用 scopeLong() 带完整日期） */
+  function scopeCap(){
+    if(scope.mode==='day') return '当日 '+scopeText();
+    if(scope.mode==='custom') return '自定义范围 '+scopeText();
+    return '全周期 '+D.dates[0]+' ~ '+D.last+'（'+dayList().length+' 天）';
+  }
+  function statLine(days){                // 图表上方的极值/均值标注
     var e = extremes(days);
     if(!e) return '';
-    return '<div class="mstat">整个周期：'+
+    return '<div class="mstat">'+scopeWord()+'：'+
       '最高 <b style="color:#dc2626">'+pct(e.max.r)+'</b>（'+e.max.dt.slice(5)+'）· '+
       '最低 <b style="color:#059669">'+pct(e.min.r)+'</b>（'+e.min.dt.slice(5)+'）· '+
       '平均 <b>'+pct(e.avg)+'</b> · '+
@@ -3174,7 +3190,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       (ser.length > 3 ? ' · 指标较多时点上不标数字，悬停点看当日值' : ' · 点上数字为每日实际值')+'</span>';
   }
   function trendBlockHTML(days){
-    return '<div class="mtabcap" style="margin-top:14px">📈 逐日走势（整个周期）<span class="wnote"></span> '+
+    return '<div class="mtabcap" style="margin-top:14px">📈 逐日走势（'+scopeCap()+'）<span class="wnote"></span> '+
       '<span style="font-weight:400;color:#98a2b3">点指标名可单选 / 多选 / 全选；% 走左轴，秒 / 单走右轴；'+
       '口径（加权/原始）在主页页首切</span></div>'+
       '<div class="tchips" id="tchips">'+trendChipsInner()+'</div>'+
@@ -3336,17 +3352,18 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     return '<div class="chartwrap">'+s+'</div>';
   }
   function openRider(ri){
-    var days = riderDays(ri, sel);            // 始终取该骑手全部日期的数据
+    var dts = dayList();                      // ★ 跟随页首「数据范围」（全周期/当日/自定义）
+    var days = riderDays(ri, sel, dts);
     var r = D.riders[ri];
     var t=0,o=0,m=0;
     days.forEach(function(d){ t+=d.t; o+=d.o; m+=d.s });
-    var ctxAll = scoreCtx(sel, allDays());   // 占比分母 / 率值合计同样用全量日期
+    var ctxAll = scoreCtx(sel, dts);          // 占比分母 / 率值合计同样跟随范围
     var tot = ctxAll.T;
     var rv = newVec(); days.forEach(function(d){ addVec(rv, d._v) });
     var mcell = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
     var html = '<div class="modal-card">'+
       '<div class="mhead"><div><div class="mtitle">'+esc(r.n)+'</div>'+
-      '<div class="muted" style="font-size:12px">'+esc(r.st)+' · '+selText()+' · <b>全量数据（不随上方日期筛选变化）</b></div></div>'+
+      '<div class="muted" style="font-size:12px">'+esc(r.st)+' · '+selText()+' · <b>'+scopeLong()+'</b></div></div>'+
       '<div style="display:flex;gap:8px;align-items:center;flex:0 0 auto">'+
       '<button class="expbtn" id="mexp" style="margin-left:0">🖼 导出图片</button>'+
       '<button class="mclose" id="mclose">✕</button></div></div>'+
@@ -3359,7 +3376,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       metricBlock(metricsOf(rv), ctxAll)+
       statLine(days)+
       '<div id="tlwrap">'+trendBlockHTML(days)+'</div>'+
-      '<div class="mtabcap">📅 每日明细（整个周期）<span class="wnote"></span></div>'+
+      '<div class="mtabcap">📅 每日明细（'+scopeCap()+'）<span class="wnote"></span></div>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>日期</th><th class="num">单量</th><th class="num">'+escA(LB('o'))+'</th>'+
       '<th class="num">'+escA(LB('rate'))+'</th><th class="num">完全妥投率</th><th class="num">非妥投率</th>'+
       '<th class="num">'+escA(LB('missS'))+'</th><th class="num">'+escA(LB('onTime'))+'</th>'+
@@ -3383,7 +3400,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     $('#mclose').onclick = function(){ mo.classList.remove('show'); document.body.classList.remove('modalOn') };
     $('#mexp').onclick = function(e){
       e.stopPropagation();
-      doExport(mo.querySelector('.modal-card'), r.n+' 全量逐日明细',
+      doExport(mo.querySelector('.modal-card'), r.n+' '+scopeCap()+' 明细',
         { backLabel:'返回明细', back:function(){ openRider(ri) } });
     };
   }
@@ -3424,18 +3441,19 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
 
   /* ================= 站点明细弹窗（整个周期） ================= */
   /* 站点层级的计分上下文（整个周期、当前筛选下的所有站点的率值合计） */
-  function scoreStCtx(st, s){
-    var ctx = scoreCtx(s, allDays(), 'station');
+  function scoreStCtx(st, s, dts){
+    var ctx = scoreCtx(s, dayIdxList(dts), 'station');
     return ctx;
   }
   function openStation(st){
-    var days = stationDays(st, sel);          // 整个周期，不随上方日期筛选变化
-    var allRd = stationRiders(st, sel);
+    var dts = dayList();                      // ★ 跟随页首「数据范围」
+    var days = stationDays(st, sel, dts);
+    var allRd = stationRiders(st, sel, dts);
     var rd = allRd.filter(function(x){ return x.t>=scope.min && x.t>0 });
     var t=0,o=0,m=0;
     days.forEach(function(d){ t+=d.t; o+=d.o; m+=d.s });
-    var ctxAll = scoreCtx(sel, allDays());            // 骑手层级（弹窗里的骑手排行）
-    var ctxSt = scoreStCtx(st, sel);                  // 站点层级（本弹窗的综合分）
+    var ctxAll = scoreCtx(sel, dts);                   // 骑手层级（弹窗里的骑手排行）
+    var ctxSt = scoreStCtx(st, sel, dts);              // 站点层级（本弹窗的综合分）
     var tot = ctxAll.T;
     rd.sort(function(a,b){ return (scoreOf(b,ctxAll)-scoreOf(a,ctxAll)) || (b.t-a.t) });
     var mcell = function(lab,val){ return '<div class="mcell"><div class="kl">'+lab+'</div><div class="kv">'+val+'</div></div>' };
@@ -3478,7 +3496,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     var html = '<div class="modal-card">'+
       '<div class="mhead"><div><div class="mtitle">'+esc(st)+'</div>'+
       '<div class="muted" style="font-size:12px">'+selText()+' · '+allRd.length+' 名骑手 · '+
-      '<b>整个周期 '+days.length+' 天（不随上方日期筛选变化）</b></div></div>'+
+      '<b>'+scopeLong()+'</b></div></div>'+
       '<div style="display:flex;gap:8px;align-items:center;flex:0 0 auto">'+
       '<button class="expbtn" id="mexp" style="margin-left:0">🖼 导出图片</button>'+
       '<button class="mclose" id="mclose">✕</button></div></div>'+
@@ -3491,7 +3509,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
       metricBlock(metricsOf((function(){ var v=newVec(); days.forEach(function(d){ addVec(v, d._v) }); return v })()), ctxSt)+
       statLine(days)+
       '<div id="tlwrap">'+trendBlockHTML(days)+'</div>'+
-      '<div class="mtabcap">📅 每日明细（整个周期）<span class="wnote"></span></div>'+ dayTab +
+      '<div class="mtabcap">📅 每日明细（'+scopeCap()+'）<span class="wnote"></span></div>'+ dayTab +
       '<div class="mtabcap">👥 该站骑手排行 <span style="font-weight:400;color:#98a2b3">共 '+allRd.length+' 名出勤，'+
         '按最少单量 ≥ '+scope.min+' 显示 '+rd.length+' 名（<b>按综合评价分降序</b>）；点任一行看逐日明细</span></div>'+ rTab +
       '</div>';
@@ -3504,7 +3522,7 @@ window.DATA={"v":7,"nf":15,"dates":["2026-09-01","2026-09-02","2026-09-03","2026
     $('#mclose').onclick = function(){ mo.classList.remove('show'); document.body.classList.remove('modalOn') };
     $('#mexp').onclick = function(e){
       e.stopPropagation();
-      doExport(mo.querySelector('.modal-card'), st+' 全周期明细',
+      doExport(mo.querySelector('.modal-card'), st+' '+scopeCap()+' 明细',
         { backLabel:'返回站点明细', back:function(){ openStation(st) } });
     };
     mo.querySelectorAll('tr.mrrow').forEach(function(tr){
