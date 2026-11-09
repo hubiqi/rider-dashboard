@@ -787,7 +787,7 @@ body.modalOn #swWrap button.on{background:#fff;color:#2563eb}
   </details>
 
   <details class="mod collapsible" data-name="日期变化趋势">
-  <summary class="sec-title"><span class="dot"></span>日期变化趋势 <small>超时率 / 四指标 / 单量</small></summary>
+  <summary class="sec-title"><span class="dot"></span>日期变化趋势 <small id="trendSub">超时率 / 四指标 / 单量</small></summary>
   <div class="card">
     <div class="ctrl">
       <div class="seg" id="metricSeg">
@@ -807,7 +807,7 @@ body.modalOn #swWrap button.on{background:#fff;color:#2563eb}
   </details>
 
   <details class="mod collapsible" data-name="卡餐二呼影响">
-  <summary class="sec-title"><span class="dot"></span>卡餐 / 二呼单影响 <small>剔除这些单后，超时率与单均复合会变成多少</small></summary>
+  <summary class="sec-title"><span class="dot"></span>卡餐 / 二呼单影响 <small id="impTeamSub">剔除这些单后，超时率与单均复合会变成多少</small></summary>
   <div class="card">
     <div id="impactTeam"></div>
   </div>
@@ -858,7 +858,7 @@ body.modalOn #swWrap button.on{background:#fff;color:#2563eb}
   <details class="fold sec morefold">
   <summary><span class="ftitle">更多分析</span><span class="fsub">站点卡餐二呼影响 · 站点维度</span></summary>
   <details class="mod collapsible" data-name="站点卡餐二呼影响">
-  <summary class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small>各站超时里有多少是商家出餐慢（卡餐）造成的</small></summary>
+  <summary class="sec-title"><span class="dot"></span>站点卡餐 / 二呼影响 <small id="impStSub">各站超时里有多少是商家出餐慢（卡餐）造成的</small></summary>
   <div class="card">
     <div id="impactStation"></div>
   </div>
@@ -5343,6 +5343,12 @@ body.modalOn #swWrap button.on{background:#fff;color:#2563eb}
     if($('#ovTitle')) $('#ovTitle').textContent = ovName;
     if($('#more1Sub')) $('#more1Sub').textContent =
       ovName+' · 质量四指标 · 日期趋势 · 卡餐二呼影响 · 团队综合分 · 剔除明细';
+    /* ★ 各模块副标题里写死的「超时率」也要跟着显示开关改名，否则表头变了、副标题没变 */
+    if($('#trendSub')) $('#trendSub').textContent = LB('rate')+' / 四指标 / 单量';
+    if($('#impTeamSub')) $('#impTeamSub').textContent = '剔除这些单后，'+LB('rate')+'与单均复合会变成多少';
+    if($('#impStSub')) $('#impStSub').textContent = showOntime
+      ? '各站准时率里有多少是被商家出餐慢（卡餐）拉低的'
+      : '各站超时里有多少是商家出餐慢（卡餐）造成的';
     if($('#stDimSub')) $('#stDimSub').textContent =
       (scope.mode==='all' ? '全周期对比 + 最新表现' : scopeWord()+' '+scopeText()+' + 最新表现') + ' · 点卡片看明细';
     $('#range').textContent = '数据范围 '+D.dates[0]+' ~ '+D.last+' · 共 '+D.dates.length+' 天 · '+
